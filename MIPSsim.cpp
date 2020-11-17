@@ -131,9 +131,34 @@ void write_Disassembly(map<string, vector<string>> instruction_disassembly, map<
 }
 
 void print_Simulation(map<int,int> mem_value, int regNum, int cycle, map<int,string> register_values, map<string, vector<string>> instruction_disassembly, map<int,string>::iterator it, string instruction){
-  cout << "-------\n";
+  cout << "--------------------\n";
   // Prints each cycle with format |cycle # | memory address | instruction in english | .......... last part got from instruction dissasembly finding the 2nd vector element at that memory address
-  cout << "Cycle: " << cycle << "\t" << it->first << "\t" << instruction_disassembly.find(to_string(it->first))->second.at(1) << "\n\n";
+  cout << "Cycle: " << cycle << "\n\n";
+
+  cout << "IF Unit:\n";
+  cout << "\tWaiting Instruction: " << "\n";
+  cout << "\tExecuting Instruction: " << "\n";
+
+  cout << "Pre-Issue Queue:\n";
+  cout << "\tEntry 0: " << "\n";
+  cout << "\tEntry 1: " << "\n";
+  cout << "\tEntry 2: " << "\n";
+  cout << "\tEntry 3: " << "\n";
+
+  cout << "Pre-ALU1 Queue: \n";
+  cout << "\tEntry 0: " << "\n";
+  cout << "\tEntry 1: " << "\n";
+
+  cout << "Pre-MEM Queue: \n";
+  cout << "Post-MEM Queue: \n";
+
+  cout << "Pre-ALU2 Queue: \n";
+  cout << "\tEntry 0: " << "\n";
+  cout << "\tEntry 1: " << "\n";
+
+  cout << "Post-ALU2 Queue: " << "\n\n";
+
+
   cout << "Registers";
   for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
     // For printing out the register row names
@@ -167,7 +192,32 @@ void print_Simulation(map<int,int> mem_value, int regNum, int cycle, map<int,str
 void write_Simulation(ofstream &simulation, map<int,int> mem_value, int regNum, int cycle, map<int,string> register_values, map<string, vector<string>> instruction_disassembly, map<int,string>::iterator it, string instruction){
   simulation << "--------------------\n";
   // Prints each cycle with format |cycle # | memory address | instruction in english | .......... last part got from instruction dissasembly finding the 2nd vector element at that memory address
-  simulation << "Cycle " << cycle << ":\t" << it->first << "\t" << instruction_disassembly.find(to_string(it->first))->second.at(1) << "\n\n";
+  simulation << "Cycle: " << cycle << "\n\n";
+
+  simulation << "IF Unit:\n";
+  simulation << "\tWaiting Instruction: " << "\n";
+  simulation << "\tExecuting Instruction: " << "\n";
+
+  simulation << "Pre-Issue Queue:\n";
+  simulation << "\tEntry 0: " << "\n";
+  simulation << "\tEntry 1: " << "\n";
+  simulation << "\tEntry 2: " << "\n";
+  simulation << "\tEntry 3: " << "\n";
+
+  simulation << "Pre-ALU1 Queue: \n";
+  simulation << "\tEntry 0: " << "\n";
+  simulation << "\tEntry 1: " << "\n";
+
+  simulation << "Pre-MEM Queue: \n";
+  simulation << "Post-MEM Queue: \n";
+
+  simulation << "Pre-ALU2 Queue: \n";
+  simulation << "\tEntry 0: " << "\n";
+  simulation << "\tEntry 1: " << "\n";
+
+  simulation << "Post-ALU2 Queue: " << "\n\n";
+
+
   simulation << "Registers";
   for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
     // For printing out the register row names
@@ -1317,7 +1367,7 @@ int main(int args, char **argv){
         if( (opcode == "0000" || opcode == "0001" || opcode == "0010" || opcode == "0011" || opcode == "0100") && (categorybits == "01") ){
           cycle++;
         }
-        //print_Simulation(mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction);
+        print_Simulation(mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction);
         write_Simulation(simulation, mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction);
         // If jump, set the current iterator to be equal to the instruction right before where we want so that when it loops around it'll be the actual one we want
         if( (opcode == "0000" || opcode == "0001" || opcode == "0010" || opcode == "0011" || opcode == "0100") && (categorybits == "01") ){
