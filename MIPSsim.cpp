@@ -7,6 +7,7 @@
 #include <math.h>
 #include <vector>
 #include <utility>
+#include <sstream>
 
 
 using namespace std;
@@ -130,19 +131,37 @@ void write_Disassembly(map<string, vector<string>> instruction_disassembly, map<
   }
 }
 
-void print_Simulation(map<int,int> mem_value, int regNum, int cycle, map<int,string> register_values, map<string, vector<string>> instruction_disassembly, map<int,string>::iterator it, string instruction, vector<string> preissue){
+void print_Simulation(map<int,int> mem_value,
+   int regNum,
+   int cycle,
+   map<int,string> register_values,
+   map<string, vector<string>> instruction_disassembly,
+   map<int,string>::iterator it, string instruction,
+   vector<string> preissue,
+   map<int, vector<string>> IFunit_instructions,
+   vector<string> IFunit){
   cout << "--------------------\n";
   // Prints each cycle with format |cycle # | memory address | instruction in english | .......... last part got from instruction dissasembly finding the 2nd vector element at that memory address
   cout << "Cycle: " << cycle << "\n\n";
 
+  // Prints the waiting and executing instructions if there are. If not, print no instruction
   cout << "IF Unit:\n";
-  cout << "\tWaiting Instruction: " << "\n";
-  cout << "\tExecuting Instruction: " << "\n";
+  if(IFunit_instructions[0].size() != 0){
+    cout << "\tWaiting Instruction: [" << IFunit.at(0) << "]\n";
+  }
+  else if(IFunit_instructions[0].size() == 0){
+    cout << "\tWaiting Instruction:\n";
+  }
+  if(IFunit_instructions[1].size() != 0){
+    cout << "\tExecuting Instruction: [" << IFunit.at(1) << "]\n";
+  }
+  else if(IFunit_instructions[1].size() == 0){
+    cout << "\tExecuting Instruction:\n";
+  }
 
   cout << "Pre-Issue Queue:\n";
-
   for(int i = 0; i < preissue.size(); i++){
-    cout << "\tEntry " << i << ": " << preissue.at(i) << "\n";
+    cout << "\tEntry " << i << ": [" << preissue.at(i) << "]\n";
   }
   if(preissue.size() != 4){
     for(int i = preissue.size(); i < 4; i++){
@@ -501,9 +520,16 @@ void instruction_fetch_decode(map<int, string> instrFet, string instruction){
 
 }
 
+// Adds instruction to the preissue vector. Use the preissue_instructions mapping to cross check with this
 void addto_preissue(string instruction, vector<string> &preissue){
   preissue.push_back(instruction);
 }
+
+// Adds instruction to the IF waiting / executed vector. Use the IFunit_instructions mapping to cross check with this.
+void addto_ifunit(string instruction, vector<string> &ifunit){
+  ifunit.push_back(instruction);
+}
+
 
 int main(int args, char **argv){
 
@@ -520,8 +546,27 @@ int main(int args, char **argv){
   // map<memoryaddr, instruction>
   map<string, vector<string>> instruction_disassembly;
   map<int, string> register_values;
+
+  // ------- Functional Units for the pipeline ------- //
   map<int, string> instructions_list;
   vector<string> preissue;
+  vector<string> IFunit;
+  // This should be a <0->3, instruction> mapping to tell what is in the preissue queue
+  map<int, vector<string>> preissue_instructions;
+  // This should be at <0/1, instruction> mapping to tell what is in waiting/executing
+  map<int, vector<string>> IFunit_instructions;
+  map<int, vector<string>> pre_alu1;
+  map<int, vector<string>> pre_alu2;
+
+  // ------------------------------------------------- //
+  // --------- Variables involved in pipeline -------- //
+  int preissueSize = 0;
+  int preissueSpot = 0;
+  int ifunitSize = 0;
+  int ifunitSpot = 0;
+  int ifNum = 0;
+  bool stalled = false;
+  // ------------------------------------------------- //
 
   // Base address to start at
   int address = 256;
@@ -577,13 +622,7 @@ int main(int args, char **argv){
   //cout << "MIPS Code \t\t\t" << "  Category \t" << "Opcode \t" << "Memory address" << endl;
   //cout << "MIPS Code \t\t\t" << "  Memory \t" <<  "Instruction" << endl;
   int iteration = 1;
-
-  // ------ Variables involved in pipeline ------
   int instructionsAmt = instructionsCount;
-  int preissueSize = 0;
-  int ifNum = 0;
-  // --------------------------------------------
-
   while(iteration <= 2){
     // Resetting the instructionsCount to place correctly place in the instructionList map
     instructionsCount = 0;
@@ -1472,28 +1511,139 @@ int main(int args, char **argv){
 
         // If there are 2 or more spots open in the preissue
         cout << "preissuesize: " << preissueSize << "\n";
-        if(preissueSize <= 2){
-          addto_preissue(instruction1, preissue);
-          addto_preissue(instruction2, preissue);
-          preissueSize = preissueSize + 2;
+
+        if(preissueSize <= 2 && stalled != true){
+
+          // Variables needed to tokenize the string
+          stringstream ss(instruction1);
+          stringstream ss2(instruction2);
+          vector<string> tokens;
+          string temp_str = "";
+          int pos = 0;
+          string instruct_temp = "";
+          bool writePreQueue = true;
+          bool breakInstr = false;
+
+          // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
+          while(getline(ss, temp_str, ' ')){
+            if(pos == 0){
+              // These commands do not go to the preissue Queue
+              if(temp_str == "BREAK" || temp_str == "NOP" || temp_str == "J" || temp_str == "JR" || temp_str == "BEQ" || temp_str == "BLTZ" || temp_str == "BGTZ"){
+                writePreQueue = false;
+              }
+              // If the instruction is not any of the not allowed ones then add it to the prequeue map
+              if(writePreQueue == true){
+                preissue_instructions.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+                preissue_instructions[preissueSpot].push_back(temp_str);
+                pos++;
+                // Make the first string token (the operation) and save it to allow for pushing back to its vector<string>
+                instruct_temp = temp_str;
+              }
+              // Else, add the instruction to the IF unit
+              else if(writePreQueue == false){
+                IFunit_instructions.insert(pair<int, vector<string>>(ifunitSpot, vector<string>()));
+                IFunit_instructions[ifunitSpot].push_back(temp_str);
+                pos++;
+                instruct_temp = temp_str;
+              }
+            }
+            else{
+              // If there is an ',' in the token string, remove it so it can be placed in map without it.
+              for(int i = 0; i < temp_str.length(); i++){
+                if(temp_str.at(i) == ','){
+                  temp_str = temp_str.substr(0, i);
+                }
+              }
+              if(writePreQueue == true){
+                preissue_instructions[preissueSpot].push_back(temp_str);
+              }
+              else if(writePreQueue == false){
+                IFunit_instructions[ifunitSpot].push_back(temp_str);
+              }
+            }
+          }
+          if(writePreQueue == true){
+            addto_preissue(instruction1, preissue);
+            preissueSize++;
+            preissueSpot++;
+          }
+          else if(writePreQueue == false){
+            addto_ifunit(instruction1, IFunit);
+            ifunitSize++;
+            ifunitSpot++;
+          }
+          temp_str = "";
+          pos = 0;
+          if(breakInstr == false){
+            while(getline(ss2, temp_str, ' ')){
+              if(pos == 0){
+                preissue_instructions.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+                pos++;
+                instruct_temp = temp_str;
+              }
+              else{
+                for(int i = 0; i < temp_str.length(); i++){
+                  if(temp_str.at(i) == ','){
+                    temp_str = temp_str.substr(0, i);
+                  }
+                }
+                preissue_instructions[preissueSpot].push_back(temp_str);
+              }
+            }
+            addto_preissue(instruction2, preissue);
+            preissueSize++;
+            preissueSpot++;
+          }
+
         }
         // Else if there is only space for 1 more in the preissue
-        else if(preissueSize == 3){
+        else if(preissueSize == 3 && stalled != true){
+          // Variables needed to tokenize the string
+          stringstream ss(instruction1);
+          vector<string> tokens;
+          string temp_str = "";
+          int pos = 0;
+          string instruct_temp = "";
+
+          // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
+          while(getline(ss, temp_str, ' ')){
+            if(pos == 0){
+              preissue_instructions.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+              pos++;
+              instruct_temp = temp_str;
+            }
+            else{
+              // If there is an ',' in the token string, remove it so it can be placed in map without it.
+              for(int i = 0; i < temp_str.length(); i++){
+                if(temp_str.at(i) == ','){
+                  temp_str = temp_str.substr(0, i);
+                }
+              }
+              preissue_instructions[preissueSpot].push_back(temp_str);
+            }
+          }
           addto_preissue(instruction1, preissue);
-          preissueSize = preissueSize + 1;
+          preissueSize++;
         }
-        // Else if there is no space in the preissue
-        else if(preissueSize == 4){
+        // if there is no space in the preissue, cause a stall for next cycle so it doesnt put more into the pipeline
+        if(preissueSize == 4){
           // do nothing
+          stalled = true;
         }
 
-
+        // Prints mapping !! instructions in pipeline !!
+        for(map<int, vector<string>>::iterator it = preissue_instructions.begin(); it != preissue_instructions.end(); it++){
+          for(int i = 0; i < it->second.size(); i++){
+            cout << it->second.at(i) << "-> ";
+          }
+          cout << "\n\n";
+        }
         cout << "instruction" << ifNum << ": " << instruction1 << "\n";
         cout << "instruction" << ifNum+1 << ": " << instruction2 << "\n\n";
         ifNum = ifNum + 2;
 
         cout << "cycle:: " << cycle << "\n";
-        print_Simulation(mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction, preissue);
+        print_Simulation(mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction, preissue, IFunit_instructions, IFunit);
         write_Simulation(simulation, mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction);
         // If jump, set the current iterator to be equal to the instruction right before where we want so that when it loops around it'll be the actual one we want
         // Jumper is set previously in the other if statement, but the iterator is turned into the jump addr here at the end.
