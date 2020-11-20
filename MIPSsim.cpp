@@ -137,9 +137,11 @@ void print_Simulation(map<int,int> mem_value,
    map<int,string> register_values,
    map<string, vector<string>> instruction_disassembly,
    map<int,string>::iterator it, string instruction,
-   vector<string> preissue,
+   map<int, string> preissue_instruction,
    map<int, vector<string>> IFunit_instructions,
-   vector<string> IFunit){
+   map<int, string> IFunit,
+   map<int, string> pre_alu1,
+   map<int, string> pre_alu2){
   cout << "--------------------\n";
   // Prints each cycle with format |cycle # | memory address | instruction in english | .......... last part got from instruction dissasembly finding the 2nd vector element at that memory address
   cout << "Cycle: " << cycle << "\n\n";
@@ -147,31 +149,37 @@ void print_Simulation(map<int,int> mem_value,
   // Prints the waiting and executing instructions if there are. If not, print no instruction
   cout << "IF Unit:\n";
   if(IFunit_instructions[0].size() != 0){
-    cout << "\tWaiting Instruction: [" << IFunit.at(0) << "]\n";
+    cout << "\tWaiting Instruction: [" << IFunit[0] << "]\n";
   }
   else if(IFunit_instructions[0].size() == 0){
     cout << "\tWaiting Instruction:\n";
   }
   if(IFunit_instructions[1].size() != 0){
-    cout << "\tExecuting Instruction: [" << IFunit.at(1) << "]\n";
+    cout << "\tExecuting Instruction: [" << IFunit[1] << "]\n";
   }
   else if(IFunit_instructions[1].size() == 0){
     cout << "\tExecuting Instruction:\n";
   }
 
   cout << "Pre-Issue Queue:\n";
-  for(int i = 0; i < preissue.size(); i++){
-    cout << "\tEntry " << i << ": [" << preissue.at(i) << "]\n";
+  for(int i = 0; i < preissue_instruction.size(); i++){
+    cout << "\tEntry " << i << ": [" << preissue_instruction.at(i) << "]\n";
   }
-  if(preissue.size() != 4){
-    for(int i = preissue.size(); i < 4; i++){
+  if(preissue_instruction.size() != 4){
+    for(int i = preissue_instruction.size(); i < 4; i++){
       cout << "\tEntry " << i << ": " << "\n";
     }
   }
 
   cout << "Pre-ALU1 Queue: \n";
-  cout << "\tEntry 0: " << "\n";
-  cout << "\tEntry 1: " << "\n";
+  for(int i = 0; i < pre_alu1.size(); i++){
+    cout << "\tEntry " << i << ": [" << pre_alu1.at(i) << "]\n";
+  }
+  if(pre_alu1.size() != 2){
+    for(int i = pre_alu1.size(); i < 2; i++){
+      cout << "\tEntry " << i << ": " << "\n";
+    }
+  }
 
   cout << "Pre-MEM Queue: \n";
   cout << "Post-MEM Queue: \n";
@@ -181,7 +189,14 @@ void print_Simulation(map<int,int> mem_value,
   cout << "\tEntry 1: " << "\n";
 
   cout << "Post-ALU2 Queue: " << "\n\n";
-
+  for(int i = 0; i < pre_alu2.size(); i++){
+    cout << "\tEntry " << i << ": [" << pre_alu2.at(i) << "]\n";
+  }
+  if(pre_alu2.size() != 2){
+    for(int i = pre_alu2.size(); i < 2; i++){
+      cout << "\tEntry " << i << ": " << "\n";
+    }
+  }
 
   cout << "Registers";
   for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
@@ -520,14 +535,10 @@ void instruction_fetch_decode(map<int, string> instrFet, string instruction){
 
 }
 
-// Adds instruction to the preissue vector. Use the preissue_instructions mapping to cross check with this
-void addto_preissue(string instruction, vector<string> &preissue){
-  preissue.push_back(instruction);
-}
+// Adds instruction to the preissue vector. Use the preissue_instructions_tokened mapping to cross check with this
+void addto_preissue(string instruction, map<int, string> &preissue_instruction, int preissueSpot){
+  preissue_instruction.insert(pair<int, string>(preissueSpot, instruction));
 
-// Adds instruction to the IF waiting / executed vector. Use the IFunit_instructions mapping to cross check with this.
-void addto_ifunit(string instruction, vector<string> &ifunit){
-  ifunit.push_back(instruction);
 }
 
 
@@ -548,15 +559,17 @@ int main(int args, char **argv){
   map<int, string> register_values;
 
   // ------- Functional Units for the pipeline ------- //
+  // These maps are just for printing purposes mostly
   map<int, string> instructions_list;
-  vector<string> preissue;
-  vector<string> IFunit;
-  // This should be a <0->3, instruction> mapping to tell what is in the preissue queue
-  map<int, vector<string>> preissue_instructions;
-  // This should be at <0/1, instruction> mapping to tell what is in waiting/executing
-  map<int, vector<string>> IFunit_instructions;
-  map<int, vector<string>> pre_alu1;
-  map<int, vector<string>> pre_alu2;
+  map<int, string> preissue_instruction; // Stores the preissue instruction (with commas). Mainly only used for printing purposes
+  map<int, string> IFunit; // Stores the 2 IF unit instructions (waiting / executing). Mainly only used for printing purposes
+  map<int, string> pre_alu1;
+  map<int, string> pre_alu2;
+  // These are tokenized mappings of functional units
+  map<int, vector<string>> preissue_instructions_tokened; // This should be a <0->3, instruction> mapping to tell what is in the preissue queue
+  map<int, vector<string>> IFunit_instructions; // This should be at <0/1, instruction> mapping to tell what is in waiting/executing
+  map<int, vector<string>> pre_alu1_instructions;
+  map<int, vector<string>> pre_alu2_instructions;
 
   // ------------------------------------------------- //
   // --------- Variables involved in pipeline -------- //
@@ -566,6 +579,8 @@ int main(int args, char **argv){
   int ifunitSpot = 0;
   int ifNum = 0;
   bool stalled = false;
+  bool prealu1_signal = true;  // Used to tell if the preAlu can load another instruction (1 instruction per cycle)
+  bool prealu2_signal = true;
   // ------------------------------------------------- //
 
   // Base address to start at
@@ -1512,8 +1527,8 @@ int main(int args, char **argv){
         // If there are 2 or more spots open in the preissue
         cout << "preissuesize: " << preissueSize << "\n";
 
+        // Loading to the IF or preissue
         if(preissueSize <= 2 && stalled != true){
-
           // Variables needed to tokenize the string
           stringstream ss(instruction1);
           stringstream ss2(instruction2);
@@ -1521,30 +1536,53 @@ int main(int args, char **argv){
           string temp_str = "";
           int pos = 0;
           string instruct_temp = "";
-          bool writePreQueue = true;
+          bool branchInstruction = false;
           bool breakInstr = false;
+          bool ready = true;
 
           // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
           while(getline(ss, temp_str, ' ')){
             if(pos == 0){
               // These commands do not go to the preissue Queue
               if(temp_str == "BREAK" || temp_str == "NOP" || temp_str == "J" || temp_str == "JR" || temp_str == "BEQ" || temp_str == "BLTZ" || temp_str == "BGTZ"){
-                writePreQueue = false;
+                branchInstruction = true;
               }
               // If the instruction is not any of the not allowed ones then add it to the prequeue map
-              if(writePreQueue == true){
-                preissue_instructions.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
-                preissue_instructions[preissueSpot].push_back(temp_str);
+              if(branchInstruction == false){
+                preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+                preissue_instructions_tokened[preissueSpot].push_back(temp_str);
                 pos++;
                 // Make the first string token (the operation) and save it to allow for pushing back to its vector<string>
                 instruct_temp = temp_str;
               }
-              // Else, add the instruction to the IF unit
-              else if(writePreQueue == false){
-                IFunit_instructions.insert(pair<int, vector<string>>(ifunitSpot, vector<string>()));
-                IFunit_instructions[ifunitSpot].push_back(temp_str);
+              // Else, if it is a branch operation, insert it into one of two spots (0 for waiting / stlaled, and 1 for executing )
+              else if(branchInstruction == true){
                 pos++;
                 instruct_temp = temp_str;
+
+                if(temp_str == "J"){
+                  ready = true;
+                }
+                else{
+
+                }
+
+                ready = false;
+                // If the operation is waiting on operands or something, it is not ready (add to waiting)
+                if(ready == false){
+                  ifunitSpot = 0;
+                  IFunit.insert(pair<int, string>(0, instruction1));
+                  IFunit_instructions.insert(pair<int, vector<string>>(ifunitSpot, vector<string>()));
+                  IFunit_instructions[ifunitSpot].push_back(temp_str);
+                }
+                // If the operation is ready and has an immediate or does not need to wait for anytthing (executing)
+                else if(ready == true){
+                  ifunitSpot = 1;
+                  IFunit.insert(pair<int, string>(1, instruction1));
+                  IFunit_instructions.insert(pair<int, vector<string>>(ifunitSpot, vector<string>()));
+                  IFunit_instructions[ifunitSpot].push_back(temp_str);
+                }
+
               }
             }
             else{
@@ -1554,30 +1592,33 @@ int main(int args, char **argv){
                   temp_str = temp_str.substr(0, i);
                 }
               }
-              if(writePreQueue == true){
-                preissue_instructions[preissueSpot].push_back(temp_str);
+              // Store the token in the preissue map
+              if(branchInstruction == false){
+                preissue_instructions_tokened[preissueSpot].push_back(temp_str);
               }
-              else if(writePreQueue == false){
+              // Store the token in the IFunit map
+              else if(branchInstruction == true){
                 IFunit_instructions[ifunitSpot].push_back(temp_str);
               }
             }
           }
-          if(writePreQueue == true){
-            addto_preissue(instruction1, preissue);
+          if(branchInstruction == false){
+            addto_preissue(instruction1, preissue_instruction, preissueSpot);
             preissueSize++;
             preissueSpot++;
           }
-          else if(writePreQueue == false){
-            addto_ifunit(instruction1, IFunit);
-            ifunitSize++;
-            ifunitSpot++;
-          }
+          // If the first instruction is a branch type instruction, delete the second instruction
+          if(branchInstruction == true)
+            instruction2 = "";
+
+
           temp_str = "";
           pos = 0;
-          if(breakInstr == false){
+          // If the first instruction was not a branch type and not a break instruction.
+          if(breakInstr == false && instruction2 != ""){
             while(getline(ss2, temp_str, ' ')){
               if(pos == 0){
-                preissue_instructions.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+                preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
                 pos++;
                 instruct_temp = temp_str;
               }
@@ -1587,16 +1628,16 @@ int main(int args, char **argv){
                     temp_str = temp_str.substr(0, i);
                   }
                 }
-                preissue_instructions[preissueSpot].push_back(temp_str);
+                preissue_instructions_tokened[preissueSpot].push_back(temp_str);
               }
             }
-            addto_preissue(instruction2, preissue);
+            addto_preissue(instruction2, preissue_instruction, preissueSpot);
             preissueSize++;
             preissueSpot++;
           }
 
         }
-        // Else if there is only space for 1 more in the preissue
+        // Else if there is only space for 1 more in the preissue. Add case for IF for waiting / executing instructions
         else if(preissueSize == 3 && stalled != true){
           // Variables needed to tokenize the string
           stringstream ss(instruction1);
@@ -1608,7 +1649,7 @@ int main(int args, char **argv){
           // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
           while(getline(ss, temp_str, ' ')){
             if(pos == 0){
-              preissue_instructions.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+              preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
               pos++;
               instruct_temp = temp_str;
             }
@@ -1619,20 +1660,54 @@ int main(int args, char **argv){
                   temp_str = temp_str.substr(0, i);
                 }
               }
-              preissue_instructions[preissueSpot].push_back(temp_str);
+              preissue_instructions_tokened[preissueSpot].push_back(temp_str);
             }
           }
-          addto_preissue(instruction1, preissue);
+          addto_preissue(instruction1, preissue_instruction, preissueSpot);
           preissueSize++;
+          preissueSpot++;
         }
         // if there is no space in the preissue, cause a stall for next cycle so it doesnt put more into the pipeline
         if(preissueSize == 4){
-          // do nothing
+          // If preissue size is 4 at the end of this stage, stall it?
           stalled = true;
         }
 
+        // If the cycle of the simulation is not the first, aka there is stuff in the preissue
+        if(cycle > 1){
+          prealu1_signal = true;
+          for(int i = 0; i < preissue_instructions_tokened.size(); i++){
+            // Scan through the preissue. If able to load and the instruction is a load or store, take it out of the preissue and move it to the preALU1
+            if(preissue_instructions_tokened[i].at(0) == "SW" || preissue_instructions_tokened[i].at(0) == "LW" && prealu1_signal == true){
+              int pre1size = pre_alu1_instructions.size();
+              pre_alu1_instructions.insert(pair<int, vector<string>>(pre1size, vector<string>()));
+
+              // For the instruction, add it to the respective prealu1 slot
+              for(int j = 0; j < preissue_instructions_tokened[i].size(); j++){
+                pre_alu1_instructions[pre1size].push_back(preissue_instructions_tokened[i].at(j));
+              }
+              pre_alu1.insert(pair<int, string>(pre1size, preissue_instruction.at(i)));
+              //preissue_instruction.erase(i);
+              prealu1_signal = false;
+            }
+            if(prealu2_signal == true){
+              int pre2size = pre_alu2_instructions.size();
+              pre_alu2_instructions.insert(pair<int, vector<string>>(pre2size, vector<string>()));
+
+              for(int j = 0; j < preissue_instructions_tokened[i].size(); j++){
+                pre_alu2_instructions[pre2size].push_back(preissue_instructions_tokened[i].at(j));
+              }
+              pre_alu2.insert(pair<int,string>(pre2size, preissue_instruction.at(i)));
+
+              prealu2_signal = false;
+            }
+
+          }
+
+        }
+
         // Prints mapping !! instructions in pipeline !!
-        for(map<int, vector<string>>::iterator it = preissue_instructions.begin(); it != preissue_instructions.end(); it++){
+        for(map<int, vector<string>>::iterator it = preissue_instructions_tokened.begin(); it != preissue_instructions_tokened.end(); it++){
           for(int i = 0; i < it->second.size(); i++){
             cout << it->second.at(i) << "-> ";
           }
@@ -1643,7 +1718,7 @@ int main(int args, char **argv){
         ifNum = ifNum + 2;
 
         cout << "cycle:: " << cycle << "\n";
-        print_Simulation(mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction, preissue, IFunit_instructions, IFunit);
+        print_Simulation(mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction, preissue_instruction, IFunit_instructions, IFunit, pre_alu1, pre_alu2);
         write_Simulation(simulation, mem_value, regNum, cycle, register_values, instruction_disassembly, it, instruction);
         // If jump, set the current iterator to be equal to the instruction right before where we want so that when it loops around it'll be the actual one we want
         // Jumper is set previously in the other if statement, but the iterator is turned into the jump addr here at the end.
