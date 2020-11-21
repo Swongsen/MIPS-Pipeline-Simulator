@@ -162,8 +162,8 @@ void print_Simulation(map<int,int> mem_value,
   }
 
   cout << "Pre-Issue Queue:\n";
-  for(int i = 0; i < preissue_instruction.size(); i++){
-    cout << "\tEntry " << i << ": [" << preissue_instruction.at(i) << "]\n";
+  for(map<int, string>::iterator it = preissue_instruction.begin(); it != preissue_instruction.end(); it++){
+    cout << "\tEntry " << it->first << ": [" << it->second << "]\n";
   }
   if(preissue_instruction.size() != 4){
     for(int i = preissue_instruction.size(); i < 4; i++){
@@ -175,7 +175,7 @@ void print_Simulation(map<int,int> mem_value,
   for(int i = 0; i < pre_alu1.size(); i++){
     cout << "\tEntry " << i << ": [" << pre_alu1.at(i) << "]\n";
   }
-  if(pre_alu1.size() != 2){
+  if(pre_alu1.size() < 2){
     for(int i = pre_alu1.size(); i < 2; i++){
       cout << "\tEntry " << i << ": " << "\n";
     }
@@ -188,7 +188,7 @@ void print_Simulation(map<int,int> mem_value,
   cout << "\tEntry 0: " << "\n";
   cout << "\tEntry 1: " << "\n";
 
-  cout << "Post-ALU2 Queue: " << "\n\n";
+  cout << "Post-ALU2 Queue: " << "\n";
   for(int i = 0; i < pre_alu2.size(); i++){
     cout << "\tEntry " << i << ": [" << pre_alu2.at(i) << "]\n";
   }
@@ -639,6 +639,10 @@ int main(int args, char **argv){
   int iteration = 1;
   int instructionsAmt = instructionsCount;
   while(iteration <= 2){
+    // If the instruction disassembly has already finished. Start the simulation before doing the memory instruction access?????
+    if(iteration == 2){
+
+    }
     // Resetting the instructionsCount to place correctly place in the instructionList map
     instructionsCount = 0;
     for(map<int,string>::iterator it = mem_instruction.begin(); it != mem_instruction.end(); it++){
@@ -1519,13 +1523,20 @@ int main(int args, char **argv){
         if( (opcode == "0000" || opcode == "0001" || opcode == "0010" || opcode == "0011" || opcode == "0100") && (categorybits == "01") ){
           cycle++;
         }
-
+        cout << "Cycle:" << cycle << "\n";
         cout << "Instructions: " << instructionsAmt << "\n";
-        string instruction1 = instructions_list[ifNum];
-        string instruction2 = instructions_list[ifNum+1];
+
+        string instruction1 = "";
+        string instruction2 = "";
+        if(stalled != true){
+          instruction1 = instructions_list[ifNum];
+          instruction2 = instructions_list[ifNum+1];
+        }
 
         // If there are 2 or more spots open in the preissue
         cout << "preissuesize: " << preissueSize << "\n";
+
+        // Create variable that can connect preissue and pre_alu by checking if it was added in the same cycle?
 
         // Loading to the IF or preissue
         if(preissueSize <= 2 && stalled != true){
@@ -1546,6 +1557,7 @@ int main(int args, char **argv){
               // These commands do not go to the preissue Queue
               if(temp_str == "BREAK" || temp_str == "NOP" || temp_str == "J" || temp_str == "JR" || temp_str == "BEQ" || temp_str == "BLTZ" || temp_str == "BGTZ"){
                 branchInstruction = true;
+                stalled = true;
               }
               // If the instruction is not any of the not allowed ones then add it to the prequeue map
               if(branchInstruction == false){
@@ -1673,12 +1685,13 @@ int main(int args, char **argv){
           stalled = true;
         }
 
+        // The if(cycle) is checking mostly for the first go around of the pipeline
         // If the cycle of the simulation is not the first, aka there is stuff in the preissue
         if(cycle > 1){
           prealu1_signal = true;
           for(int i = 0; i < preissue_instructions_tokened.size(); i++){
             // Scan through the preissue. If able to load and the instruction is a load or store, take it out of the preissue and move it to the preALU1
-            if(preissue_instructions_tokened[i].at(0) == "SW" || preissue_instructions_tokened[i].at(0) == "LW" && prealu1_signal == true){
+            if(preissue_instructions_tokened[i].at(0) == "SW" || preissue_instructions_tokened[i].at(0) == "LW" && prealu1_signal == true && pre_alu1.size() < 2){
               int pre1size = pre_alu1_instructions.size();
               pre_alu1_instructions.insert(pair<int, vector<string>>(pre1size, vector<string>()));
 
@@ -1686,11 +1699,27 @@ int main(int args, char **argv){
               for(int j = 0; j < preissue_instructions_tokened[i].size(); j++){
                 pre_alu1_instructions[pre1size].push_back(preissue_instructions_tokened[i].at(j));
               }
+              pre_alu1_instructions.erase(i);
+              // Insert into the printer of pre_alu1
               pre_alu1.insert(pair<int, string>(pre1size, preissue_instruction.at(i)));
-              //preissue_instruction.erase(i);
+              cout << preissue_instruction.size() << " ";
+
+              // After moving the preissue instruction to the ALU, we must remove it and move up the next instruction.
+              if(i < preissue_instruction.size()){
+                preissue_instruction[i] = preissue_instruction.at(i+1);
+                preissue_instructions_tokened[i] = preissue_instructions_tokened[i+1];
+                preissue_instruction.erase(i+1);
+                preissue_instructions_tokened.erase(i+1);
+              }
+              // If the moved preissue instruction is the last one, just remove it from the preissue list
+              else if(i == preissue_instruction.size() - 1){
+                preissue_instruction.erase(i);
+              }
+
+              cout << preissue_instruction.size() << " ";
               prealu1_signal = false;
             }
-            if(prealu2_signal == true){
+            if(prealu2_signal == true && pre_alu2.size() < 2){
               int pre2size = pre_alu2_instructions.size();
               pre_alu2_instructions.insert(pair<int, vector<string>>(pre2size, vector<string>()));
 
@@ -1698,11 +1727,28 @@ int main(int args, char **argv){
                 pre_alu2_instructions[pre2size].push_back(preissue_instructions_tokened[i].at(j));
               }
               pre_alu2.insert(pair<int,string>(pre2size, preissue_instruction.at(i)));
+              if(i < preissue_instruction.size()){
+                preissue_instruction[i] = preissue_instruction.at(i+1);
+                preissue_instructions_tokened[i] = preissue_instructions_tokened[i+1];
+                preissue_instruction.erase(i+1);
+                preissue_instructions_tokened.erase(i+1);
+              }
+              // If the moved preissue instruction is the last one, just remove it from the preissue list
+              else if(i == preissue_instruction.size() - 1){
+                preissue_instruction.erase(i);
+              }
 
               prealu2_signal = false;
             }
-
           }
+         }
+        if(cycle > 2){
+
+        }
+        if(cycle > 3){
+
+        }
+        if(cycle > 4){
 
         }
 
@@ -1726,9 +1772,9 @@ int main(int args, char **argv){
           it = jumper;
         }
 
-      }
+      } // End of if(iteration == 2)
 
-    }
+    } // End of the for loop iterating through the mem_instruction map
     if(iteration == 1){
       write_Disassembly(instruction_disassembly, mem_value, mem_data);
       // Reset the cycle for the beginning of iteration 2 (simulation)
