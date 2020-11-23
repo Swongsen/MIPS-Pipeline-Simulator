@@ -1,0 +1,14 @@
+for(map<int, vector<string>>::iterator it = source_registers_inpipeline.begin(); it != source_registers_inpipeline.end(); it++){
+  if(it->first < cycle){
+    for(int i = 0; i < it->second.size(); i++){
+      cout << "mems: " << memSource << " | ";
+      if(memSource == it->second.at(i)){
+        noHazards = false;
+        cout << "HAZARDDDDDDDDD";
+      }
+      else{
+        cout << it->second.at(i);
+      }
+    }
+  }
+}
