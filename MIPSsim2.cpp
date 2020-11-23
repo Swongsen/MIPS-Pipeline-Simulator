@@ -568,12 +568,14 @@ int main(int args, char **argv){
   map<int, string> IFunit; // Stores the 2 IF unit instructions (waiting / executing). Mainly only used for printing purposes
   map<int, string> pre_alu1;
   map<int, string> pre_alu2;
+  map<int, vector<string>> registers_waited_on;
   string post_alu2_queue;
   string pre_mem_queue;
   string post_mem_queue;
   // These are tokenized mappings of functional units
   map<int, vector<string>> preissue_instructions_tokened; // This should be a <0->3, cycle entered into preissue, instruction> mapping to tell what is in the preissue queue
-  map<int, vector<string>> IFunit_instructions_tokened; // This should be at <0/1, instruction> mapping to tell what is in waiting/executing
+  map<int, vector<string>> IFunit_instructions_tokened; // This should be at <0/1, cycle time entered | instruction> mapping to tell what is in waiting/executing
+  //map<int, vector<string>> instructions_inpipeline; // This will be in the form of < instruction # , cycle time entered | instruction>
   map<int, vector<string>> pre_alu1_instructions_tokened;
   map<int, vector<string>> pre_alu2_instructions_tokened;
   map<int, vector<string>> post_alu2_queue_tokened;
@@ -583,6 +585,7 @@ int main(int args, char **argv){
 
   // ------------------------------------------------- //
   // --------- Variables involved in pipeline -------- //
+  map<int,string>::iterator go_back_to_execute;
   int preissueSize = 0;
   int preissueSpot = 0;
   int ifunitSize = 0;
@@ -593,6 +596,9 @@ int main(int args, char **argv){
   bool prealu2_signal = true;
   bool notWB = true;
   bool alu2stall = false;
+  bool branchInstruction = false;
+  bool movetoExecute = false;
+  bool timeToDoBranch = false;
   // ------------------------------------------------- //
 
   // Base address to start at
@@ -672,121 +678,178 @@ int main(int args, char **argv){
           // Beginning of adding instructions to the preissue
           string instruction1 = "";
           string instruction2 = "";
+          timeToDoBranch = false;
 
-          if(preissueSize <= 2 && stalled != true){
-            instruction1 = instructions_list[ifNum];
-            instruction2 = instructions_list[ifNum+1];
-            cout << "instruction" << ifNum << ": " << instruction1 << "\n";
-            cout << "instruction" << ifNum+1 << ": " << instruction2 << "\n\n";
-            ifNum = ifNum + 2;
-            // Variables needed to tokenize the string
-            stringstream ss(instruction1);
-            stringstream ss2(instruction2);
-            vector<string> tokens;
-            string temp_str = "";
-            int pos = 0;
-            string instruct_temp = "";
-            bool branchInstruction = false;
-            bool breakInstr = false;
-            bool ready = true;
+          // If the pipeline is unstalled, the previous waiting to execute instruction will now be moved to execute.
+          if(stalled == false && movetoExecute == true){
+            timeToDoBranch = true;
+            if(IFunit_instructions_tokened[1].size() == 0){
+              IFunit_instructions_tokened.insert(pair<int, vector<string>>(1, vector<string>()));
+              for(int i = 1; i < IFunit_instructions_tokened[0].size(); i++){
+                IFunit_instructions_tokened[1].push_back(IFunit_instructions_tokened[0].at(i));
+              }
+              IFunit.insert(pair<int, string>(1, IFunit[0]));
+              IFunit.erase(0);
+              IFunit_instructions_tokened.erase(0);
+            }
+            cout << "time to jump";
+            it = go_back_to_execute;
+            notWB = false;
+          }
+          cout <<"weeee";
+          if(timeToDoBranch == false){
+            // If there is space in the preissue and it is not stalled
+            if(preissueSize <= 2 && stalled != true){
+              instruction1 = instructions_list[ifNum];
+              instruction2 = instructions_list[ifNum+1];
+              cout << "instruction" << ifNum << ": " << instruction1 << "\n";
+              cout << "instruction" << ifNum+1 << ": " << instruction2 << "\n\n";
+              ifNum = ifNum + 2;
+              // Variables needed to tokenize the string
+              stringstream ss(instruction1);
+              stringstream ss2(instruction2);
+              vector<string> tokens;
+              string temp_str = "";
+              int pos = 0;
+              bool breakInstr = false;
+              bool ready = true;
+              // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
+              while(getline(ss, temp_str, ' ')){
+                if(pos == 0){
+                  it++;
+                  // These commands do not go to the preissue Queue
+                  if(temp_str == "BREAK" || temp_str == "NOP" || temp_str == "J" || temp_str == "JR" || temp_str == "BEQ" || temp_str == "BLTZ" || temp_str == "BGTZ"){
+                    branchInstruction = true;
+                    stalled = true;
+                    go_back_to_execute = it;
+                    if(temp_str == "BREAK"){
+                      // Assuming BREAK is not the first instruction of the list
+                      IFunit_instructions_tokened[1].push_back(temp_str);
+                      print_Simulation(mem_value, cycle, register_values, preissue_instruction, IFunit_instructions_tokened, IFunit, pre_alu1, pre_alu2, post_alu2_queue, pre_mem_queue);
+                      return 0;
+                    }
+                  }
+                  // If the instruction is not any of the not allowed ones then add it to the prequeue map
+                  if(branchInstruction == false){
+                    preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+                    preissue_instructions_tokened[preissueSpot].push_back(to_string(cycle));
+                    preissue_instructions_tokened[preissueSpot].push_back(temp_str);
+                    pos++;
+                  }
+                  // Else, if it is a branch operation, insert it into one of two spots (0 for waiting / stlaled, and 1 for executing )
+                  else if(branchInstruction == true){
+                    // pos being the position in the string stream (from beginning to end)
+                    pos++;
+                    if(temp_str == "J"){
+                      ready = true;
+                    }
+                    else{
 
-            // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
-            while(getline(ss, temp_str, ' ')){
-              if(pos == 0){
-                // These commands do not go to the preissue Queue
-                if(temp_str == "BREAK" || temp_str == "NOP" || temp_str == "J" || temp_str == "JR" || temp_str == "BEQ" || temp_str == "BLTZ" || temp_str == "BGTZ"){
-                  branchInstruction = true;
-                  stalled = true;
-                  if(temp_str == "BREAK"){
-                    IFunit_instructions_tokened[1].push_back(temp_str);
-                    print_Simulation(mem_value, cycle, register_values, preissue_instruction, IFunit_instructions_tokened, IFunit, pre_alu1, pre_alu2, post_alu2_queue, pre_mem_queue);
-                    return 0;
+                    }
+                    ready = false;
+                    // If the operation is waiting on operands or something, it is not ready (add to waiting)
+                    if(ready == false){
+                      IFunit.insert(pair<int, string>(0, instruction1));
+                      IFunit_instructions_tokened.insert(pair<int, vector<string>>(0, vector<string>()));
+                      IFunit_instructions_tokened[0].push_back(to_string(cycle));
+                      IFunit_instructions_tokened[0].push_back(temp_str);
+                    }
+                    // If the operation is ready and has an immediate or does not need to wait for anytthing (executing)
+                    else if(ready == true){
+                      IFunit.insert(pair<int, string>(1, instruction1));
+                      IFunit_instructions_tokened.insert(pair<int, vector<string>>(1, vector<string>()));
+                      IFunit_instructions_tokened[1].push_back(to_string(cycle));
+                      IFunit_instructions_tokened[1].push_back(temp_str);
+                    }
+
                   }
                 }
-                // If the instruction is not any of the not allowed ones then add it to the prequeue map
-                if(branchInstruction == false){
-                  preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
-                  preissue_instructions_tokened[preissueSpot].push_back(to_string(cycle));
-                  preissue_instructions_tokened[preissueSpot].push_back(temp_str);
-                  pos++;
-                  // Make the first string token (the operation) and save it to allow for pushing back to its vector<string>
-                  instruct_temp = temp_str;
-                }
-                // Else, if it is a branch operation, insert it into one of two spots (0 for waiting / stlaled, and 1 for executing )
-                else if(branchInstruction == true){
-                  pos++;
-                  instruct_temp = temp_str;
+                else{
+                  // If there is an ',' in the token string, remove it so it can be placed in map without it.
+                  for(int i = 0; i < temp_str.length(); i++){
+                    if(temp_str.at(i) == ','){
+                      temp_str = temp_str.substr(0, i);
+                    }
+                  }
+                  // Store the token in the preissue map
+                  if(branchInstruction == false){
+                    preissue_instructions_tokened[preissueSpot].push_back(temp_str);
+                  }
+                  // Store the token in the IFunit map
+                  else if(branchInstruction == true){
+                    if(ready == false){
+                      IFunit_instructions_tokened[0].push_back(temp_str);
+                      registers_waited_on[0].push_back(temp_str);
+                    }
+                    else if(ready == true){
+                      IFunit_instructions_tokened[1].push_back(temp_str);
+                    }
+                  }
+                }// End of adding the components of the instruction
 
-                  if(temp_str == "J"){
-                    ready = true;
+              }
+              if(branchInstruction == false){
+                addto_preissue(instruction1, preissue_instruction, preissueSpot);
+                preissueSize++;
+                preissueSpot++;
+              }
+              // If the first instruction is a branch type instruction, delete the second instruction
+              if(branchInstruction == true){
+                instruction2 = "";
+                ifNum = ifNum - 1;
+                if(ready == false){
+                  // Take out the offset of the list of registers being waited on
+                  registers_waited_on[0].pop_back();
+                }
+              }
+
+              temp_str = "";
+              pos = 0;
+              // If the first instruction was not a branch type and not a break instruction.
+              if(breakInstr == false && instruction2 != ""){
+                it++;
+                while(getline(ss2, temp_str, ' ')){
+                  if(pos == 0){
+                    preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
+                    preissue_instructions_tokened[preissueSpot].push_back(to_string(cycle));
+                    preissue_instructions_tokened[preissueSpot].push_back(temp_str);
+                    pos++;
                   }
                   else{
-
-                  }
-
-                  ready = false;
-                  // If the operation is waiting on operands or something, it is not ready (add to waiting)
-                  if(ready == false){
-                    IFunit.insert(pair<int, string>(0, instruction1));
-                    IFunit_instructions_tokened.insert(pair<int, vector<string>>(0, vector<string>()));
-                    IFunit_instructions_tokened[0].push_back(temp_str);
-                  }
-                  // If the operation is ready and has an immediate or does not need to wait for anytthing (executing)
-                  else if(ready == true){
-                    IFunit.insert(pair<int, string>(1, instruction1));
-                    IFunit_instructions_tokened.insert(pair<int, vector<string>>(1, vector<string>()));
-                    IFunit_instructions_tokened[1].push_back(temp_str);
-                  }
-
-                }
-              }
-              else{
-                // If there is an ',' in the token string, remove it so it can be placed in map without it.
-                for(int i = 0; i < temp_str.length(); i++){
-                  if(temp_str.at(i) == ','){
-                    temp_str = temp_str.substr(0, i);
+                    for(int i = 0; i < temp_str.length(); i++){
+                      if(temp_str.at(i) == ','){
+                        temp_str = temp_str.substr(0, i);
+                      }
+                    }
+                    preissue_instructions_tokened[preissueSpot].push_back(temp_str);
                   }
                 }
-                // Store the token in the preissue map
-                if(branchInstruction == false){
-                  preissue_instructions_tokened[preissueSpot].push_back(temp_str);
-                }
-                // Store the token in the IFunit map
-                else if(branchInstruction == true){
-                  if(ready == false){
-                    IFunit_instructions_tokened[0].push_back(temp_str);
-                  }
-                  else if(ready == true){
-                    IFunit_instructions_tokened[1].push_back(temp_str);
-                  }
-                }
+                addto_preissue(instruction2, preissue_instruction, preissueSpot);
+                preissueSize++;
+                preissueSpot++;
               }
             }
-            if(branchInstruction == false){
-              addto_preissue(instruction1, preissue_instruction, preissueSpot);
-              preissueSize++;
-              preissueSpot++;
-            }
-            // If the first instruction is a branch type instruction, delete the second instruction
-            if(branchInstruction == true){
-              instruction2 = "";
-              ifNum = ifNum - 1;
-            }
+            // Else if there is only space for 1 more in the preissue. Add case for IF for waiting / executing instructions
+            else if(preissueSize == 3 && stalled != true){
+              instruction1 = instructions_list[ifNum];
+              cout << "instruction: " << instruction1 << "\n";
+              ifNum++;
+              // Variables needed to tokenize the string
+              stringstream ss(instruction1);
+              vector<string> tokens;
+              string temp_str = "";
+              int pos = 0;
 
-
-            temp_str = "";
-            pos = 0;
-            // If the first instruction was not a branch type and not a break instruction.
-            if(breakInstr == false && instruction2 != ""){
-              while(getline(ss2, temp_str, ' ')){
+              // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
+              while(getline(ss, temp_str, ' ')){
                 if(pos == 0){
                   preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
                   preissue_instructions_tokened[preissueSpot].push_back(to_string(cycle));
                   preissue_instructions_tokened[preissueSpot].push_back(temp_str);
                   pos++;
-                  instruct_temp = temp_str;
                 }
                 else{
+                  // If there is an ',' in the token string, remove it so it can be placed in map without it.
                   for(int i = 0; i < temp_str.length(); i++){
                     if(temp_str.at(i) == ','){
                       temp_str = temp_str.substr(0, i);
@@ -795,276 +858,312 @@ int main(int args, char **argv){
                   preissue_instructions_tokened[preissueSpot].push_back(temp_str);
                 }
               }
-              addto_preissue(instruction2, preissue_instruction, preissueSpot);
+              addto_preissue(instruction1, preissue_instruction, preissueSpot);
               preissueSize++;
               preissueSpot++;
             }
 
-          }
-
-          // Else if there is only space for 1 more in the preissue. Add case for IF for waiting / executing instructions
-          else if(preissueSize == 3 && stalled != true){
-            instruction1 = instructions_list[ifNum];
-            cout << "instruction: " << instruction1 << "\n";
-            ifNum++;
-            // Variables needed to tokenize the string
-            stringstream ss(instruction1);
-            vector<string> tokens;
-            string temp_str = "";
-            int pos = 0;
-            string instruct_temp = "";
-
-            // Takes instruction1 and turns it into tokens, storing the first one as map key and the rest as a vector of strings to the key.
-            while(getline(ss, temp_str, ' ')){
-              if(pos == 0){
-                preissue_instructions_tokened.insert(pair<int, vector<string>>(preissueSpot, vector<string>()));
-                preissue_instructions_tokened[preissueSpot].push_back(to_string(cycle));
-                preissue_instructions_tokened[preissueSpot].push_back(temp_str);
-                pos++;
-                instruct_temp = temp_str;
-              }
-              else{
-                // If there is an ',' in the token string, remove it so it can be placed in map without it.
-                for(int i = 0; i < temp_str.length(); i++){
-                  if(temp_str.at(i) == ','){
-                    temp_str = temp_str.substr(0, i);
-                  }
-                }
-                preissue_instructions_tokened[preissueSpot].push_back(temp_str);
-              }
+            // if there is no space in the preissue, cause a stall for next cycle so it doesnt put more into the pipeline
+            if(preissueSize == 4){
+              // If preissue size is 4 at the end of this stage, stall it?
+              //stalled = true;
             }
-            addto_preissue(instruction1, preissue_instruction, preissueSpot);
-            preissueSize++;
-            preissueSpot++;
-          }
+            // End of adding instructions to the preissue
+            cout << "preissue_size: " << preissue_instructions_tokened.size() << "\n";
+            // For instructions in the preissue, if it was entered at a cycle before current cycle, move it to PREALUs if able
+            for(int i = 0; i < preissue_instructions_tokened.size(); i++){
+              if(stoi(preissue_instructions_tokened[i].at(0)) < cycle){
+                cout << "Instruction: " << preissue_instruction.at(i) << " entered PreALU at: " << cycle << "\n";
+                prealu1_signal = true;
+                for(int i = 0; i < preissue_instructions_tokened.size(); i++){
+                  // Scan through the preissue. If able to load and the instruction is a load or store, take it out of the preissue and move it to the preALU1
+                  if(preissue_instructions_tokened[i].at(0) == "SW" || preissue_instructions_tokened[i].at(0) == "LW" && prealu1_signal == true && pre_alu1.size() < 2){
+                    int pre1size = pre_alu1_instructions_tokened.size();
+                    pre_alu1_instructions_tokened.insert(pair<int, vector<string>>(pre1size, vector<string>()));
+                    // This makes the first vector element of the pre_alu1_instructions_tokened the cycle at which it is entered in.
+                    pre_alu1_instructions_tokened[pre1size].push_back(to_string(cycle));
 
-          // if there is no space in the preissue, cause a stall for next cycle so it doesnt put more into the pipeline
-          if(preissueSize == 4){
-            // If preissue size is 4 at the end of this stage, stall it?
-            //stalled = true;
-          }
-          // End of adding instructions to the preissue
+                    // For the instruction, add it to the respective prealu1 slot
+                    for(int j = 1; j < preissue_instructions_tokened[i].size(); j++){
+                      pre_alu1_instructions_tokened[pre1size].push_back(preissue_instructions_tokened[i].at(j));
+                    }
 
-          // For instructions in the preissue, if it was entered at a cycle before current cycle, move it to PREALUs if able
-          for(int i = 0; i < preissue_instructions_tokened.size(); i++){
-            if(stoi(preissue_instructions_tokened[i].at(0)) < cycle){
-              cout << "Instruction: " << preissue_instruction.at(i) << " entered PreALU at: " << cycle << "\n";
-              prealu1_signal = true;
-              for(int i = 0; i < preissue_instructions_tokened.size(); i++){
-                // Scan through the preissue. If able to load and the instruction is a load or store, take it out of the preissue and move it to the preALU1
-                if(preissue_instructions_tokened[i].at(0) == "SW" || preissue_instructions_tokened[i].at(0) == "LW" && prealu1_signal == true && pre_alu1.size() < 2){
-                  int pre1size = pre_alu1_instructions_tokened.size();
-                  pre_alu1_instructions_tokened.insert(pair<int, vector<string>>(pre1size, vector<string>()));
-                  // This makes the first vector element of the pre_alu1_instructions_tokened the cycle at which it is entered in.
-                  pre_alu1_instructions_tokened[pre1size].push_back(to_string(cycle));
 
-                  // For the instruction, add it to the respective prealu1 slot
-                  for(int j = 1; j < preissue_instructions_tokened[i].size(); j++){
-                    pre_alu1_instructions_tokened[pre1size].push_back(preissue_instructions_tokened[i].at(j));
+                    // Insert into the printer of pre_alu1
+                    pre_alu1.insert(pair<int, string>(pre1size, preissue_instruction.at(i)));
+                    cout << preissue_instruction.size() << " ";
+
+                    // After moving the preissue instruction to the ALU, we must remove it and move up the next instruction.
+                    if(i < preissue_instruction.size()){
+                      preissue_instruction[i] = preissue_instruction.at(i+1);
+                      preissue_instructions_tokened[i] = preissue_instructions_tokened[i+1];
+                      preissue_instruction.erase(i+1);
+                      preissue_instructions_tokened.erase(i+1);
+                      preissueSize--;
+                      preissueSpot--;
+                    }
+                    // If the moved preissue instruction is the last one, just remove it from the preissue list
+                    else if(i == preissue_instruction.size() - 1){
+                      preissue_instruction.erase(i);
+                    }
+
+                    cout << preissue_instruction.size() << " ";
+                    prealu1_signal = false;
                   }
+                  if(prealu2_signal == true && pre_alu2.size() < 2){
+                    cout << "prealu2 test" << "\n";
+                    int pre2size = pre_alu2_instructions_tokened.size();
+                    pre_alu2_instructions_tokened.insert(pair<int, vector<string>>(pre2size, vector<string>()));
+                    pre_alu2_instructions_tokened[pre2size].push_back(to_string(cycle));
 
+                    // Starting at index 1 because we do not want to store the previous cycle entered time
+                    for(int j = 1; j < preissue_instructions_tokened[i].size(); j++){
+                      pre_alu2_instructions_tokened[pre2size].push_back(preissue_instructions_tokened[i].at(j));
+                    }
 
-                  // Insert into the printer of pre_alu1
-                  pre_alu1.insert(pair<int, string>(pre1size, preissue_instruction.at(i)));
-                  cout << preissue_instruction.size() << " ";
+                    pre_alu2.insert(pair<int,string>(pre2size, preissue_instruction.at(i)));
+                    if(i < preissue_instruction.size() - 1){
+                      preissue_instruction[i] = preissue_instruction.at(i+1);
+                      preissue_instructions_tokened[i] = preissue_instructions_tokened[i+1];
+                      preissue_instruction.erase(i+1);
+                      preissue_instructions_tokened.erase(i+1);
+                      preissueSize--;
+                      preissueSpot--;
+                    }
+                    // If the moved preissue instruction is the last one, just remove it from the preissue list
+                    else if(i == preissue_instruction.size() - 1){
+                      preissue_instruction.erase(i);
+                      preissue_instructions_tokened.erase(i);
+                      preissueSize--;
+                      preissueSpot--;
+                    }
 
-                  // After moving the preissue instruction to the ALU, we must remove it and move up the next instruction.
-                  if(i < preissue_instruction.size()){
-                    preissue_instruction[i] = preissue_instruction.at(i+1);
-                    preissue_instructions_tokened[i] = preissue_instructions_tokened[i+1];
-                    preissue_instruction.erase(i+1);
-                    preissue_instructions_tokened.erase(i+1);
-                    preissueSize--;
-                    preissueSpot--;
+                    //prealu2_signal = false;
                   }
-                  // If the moved preissue instruction is the last one, just remove it from the preissue list
-                  else if(i == preissue_instruction.size() - 1){
-                    preissue_instruction.erase(i);
-                  }
-
-                  cout << preissue_instruction.size() << " ";
-                  prealu1_signal = false;
                 }
-                if(prealu2_signal == true && pre_alu2.size() < 2){
-                  int pre2size = pre_alu2_instructions_tokened.size();
-                  pre_alu2_instructions_tokened.insert(pair<int, vector<string>>(pre2size, vector<string>()));
-                  pre_alu2_instructions_tokened[pre2size].push_back(to_string(cycle));
+              }
+            } // End of the Preissue to PreAlu
+            // Moving instructions from the prealu1 to pre-mem
+            for(int i = 0; i < pre_alu1_instructions_tokened.size(); i++){
+              cout << "Instruction: " << pre_alu1.at(i) << " entered prealu1 at " << pre_alu1_instructions_tokened[i].at(0) << "\n";
+              if(stoi(pre_alu1_instructions_tokened[i].at(0)) < cycle){
+                pre_mem_queue = pre_alu2.at(i);
 
-                  // Starting at index 1 because we do not want to store the previous cycle entered time
-                  for(int j = 1; j < preissue_instructions_tokened[i].size(); j++){
-                    pre_alu2_instructions_tokened[pre2size].push_back(preissue_instructions_tokened[i].at(j));
-                  }
-
-                  pre_alu2.insert(pair<int,string>(pre2size, preissue_instruction.at(i)));
-                  if(i < preissue_instruction.size() - 1){
-                    preissue_instruction[i] = preissue_instruction.at(i+1);
-                    preissue_instructions_tokened[i] = preissue_instructions_tokened[i+1];
-                    preissue_instruction.erase(i+1);
-                    preissue_instructions_tokened.erase(i+1);
-                    preissueSize--;
-                    preissueSpot--;
-                  }
-                  // If the moved preissue instruction is the last one, just remove it from the preissue list
-                  else if(i == preissue_instruction.size() - 1){
-                    preissue_instruction.erase(i);
-                    preissue_instructions_tokened.erase(i);
-                  }
-
-                  //prealu2_signal = false;
+                if(i < pre_alu1_instructions_tokened.size() - 1){
+                  pre_alu1[i] = pre_alu1[i+1];
+                  pre_alu1_instructions_tokened[i] = pre_alu1_instructions_tokened.at(i+1);
+                  pre_alu1.erase(i+1);
+                  pre_alu1_instructions_tokened.erase(i+1);
+                }
+                else if(i == pre_alu1.size() - 1){
+                  pre_alu1.erase(i);
+                  pre_alu1_instructions_tokened.erase(i);
                 }
               }
             }
-          } // End of the Preissue to PreAlu
 
-          // Moving instructions from the prealu1 to pre-mem
-          for(int i = 0; i < pre_alu1_instructions_tokened.size(); i++){
-            cout << "Instruction: " << pre_alu1.at(i) << " entered prealu1 at " << pre_alu1_instructions_tokened[i].at(0) << "\n";
-            if(stoi(pre_alu1_instructions_tokened[i].at(0)) < cycle){
-              pre_mem_queue = pre_alu2.at(i);
+            // Moving instructions from the prealu2 to post alu
+            for(int i = 0; i < pre_alu2_instructions_tokened.size(); i++){
+              if(stoi(pre_alu2_instructions_tokened[i].at(0)) < cycle && alu2stall != true){
+                cout << "Instruction: " << pre_alu2.at(i) << " entered PostALU2 at " << cycle << "\n";
+                post_alu2_queue = pre_alu2.at(i);
+                int post2size = post_alu2_queue_tokened.size();
+                post_alu2_queue_tokened.insert(pair<int, vector<string>>(post2size, vector<string>()));
+                post_alu2_queue_tokened[post2size].push_back(to_string(cycle));
 
-              if(i < pre_alu1_instructions_tokened.size() - 1){
-                pre_alu1[i] = pre_alu1[i+1];
-                pre_alu1_instructions_tokened[i] = pre_alu1_instructions_tokened.at(i+1);
-                pre_alu1.erase(i+1);
-                pre_alu1_instructions_tokened.erase(i+1);
-              }
-              else if(i == pre_alu1.size() - 1){
-                pre_alu1.erase(i);
-                pre_alu1_instructions_tokened.erase(i);
+                for(int j = 1; j < pre_alu2_instructions_tokened[i].size(); j++){
+                  post_alu2_queue_tokened[post2size].push_back(pre_alu2_instructions_tokened[i].at(j));
+                }
+
+                if(i < pre_alu2.size() - 1){
+                  pre_alu2[i] = pre_alu2[i+1];
+                  pre_alu2_instructions_tokened[i] = pre_alu2_instructions_tokened.at(i+1);
+                  pre_alu2.erase(i+1);
+                  pre_alu2_instructions_tokened.erase(i+1);
+                }
+                else if(i == pre_alu2.size() - 1){
+                  pre_alu2.erase(i);
+                  pre_alu2_instructions_tokened.erase(i);
+                }
+                alu2stall = true;
               }
             }
-          }
 
-          // Moving instructions from the prealu2 to post alu
-          for(int i = 0; i < pre_alu2_instructions_tokened.size(); i++){
-            if(stoi(pre_alu2_instructions_tokened[i].at(0)) < cycle && alu2stall != true){
-              cout << "Instruction: " << pre_alu2.at(i) << " entered PostALU2 at " << cycle << "\n";
-              post_alu2_queue = pre_alu2.at(i);
-              int post2size = post_alu2_queue_tokened.size();
-              post_alu2_queue_tokened.insert(pair<int, vector<string>>(post2size, vector<string>()));
-              post_alu2_queue_tokened[post2size].push_back(to_string(cycle));
+            // Moving instructions from the postALU to the WB
+            for(int i = 0; i < post_alu2_queue_tokened.size(); i++){
+              if(stoi(post_alu2_queue_tokened[i].at(0)) < cycle){
+                cout << "cycle enter:: " << post_alu2_queue_tokened[i].at(0) << "\n";
+                cout << "Instruction: ";
+                int wb_size = write_back_tokened.size();
+                write_back_tokened.insert(pair<int, vector<string>>(wb_size, vector<string>()));
+                write_back_tokened[wb_size].push_back(to_string(cycle));
+                for(int j = 1; j < post_alu2_queue_tokened[i].size(); j++){
+                  cout << post_alu2_queue_tokened[i].at(j) << " ";
+                  write_back_tokened[wb_size].push_back(post_alu2_queue_tokened[i].at(j));
+                }
 
-              for(int j = 1; j < pre_alu2_instructions_tokened[i].size(); j++){
-                post_alu2_queue_tokened[post2size].push_back(pre_alu2_instructions_tokened[i].at(j));
-              }
+                if(i < post_alu2_queue_tokened.size() - 1){
+                  cout << post_alu2_queue.size() << "\'";
+                  post_alu2_queue_tokened[i] = post_alu2_queue_tokened.at(i+1);
+                  post_alu2_queue_tokened.erase(i+1);
+                }
+                else if(i == post_alu2_queue_tokened.size() - 1){
+                  post_alu2_queue_tokened.erase(i);
+                }
+                cout << " entered WB at " << cycle << "\n";
 
-              if(i < pre_alu2.size() - 1){
-                pre_alu2[i] = pre_alu2[i+1];
-                pre_alu2_instructions_tokened[i] = pre_alu2_instructions_tokened.at(i+1);
-                pre_alu2.erase(i+1);
-                pre_alu2_instructions_tokened.erase(i+1);
               }
-              else if(i == pre_alu2.size() - 1){
-                pre_alu2.erase(i);
-                pre_alu2_instructions_tokened.erase(i);
-              }
-              alu2stall = true;
             }
-          }
 
-          // Moving instructions from the postALU to the WB
-          for(int i = 0; i < post_alu2_queue_tokened.size(); i++){
-            if(stoi(post_alu2_queue_tokened[i].at(0)) < cycle){
-              cout << "cycle enter:: " << post_alu2_queue_tokened[i].at(0) << "\n";
-              cout << "Instruction: ";
-              int wb_size = write_back_tokened.size();
-              write_back_tokened.insert(pair<int, vector<string>>(wb_size, vector<string>()));
-              write_back_tokened[wb_size].push_back(to_string(cycle));
-              for(int j = 1; j < post_alu2_queue_tokened[i].size(); j++){
-                cout << post_alu2_queue_tokened[i].at(j) << " ";
-                write_back_tokened[wb_size].push_back(post_alu2_queue_tokened[i].at(j));
+
+            cout << "\n\n";
+
+            cout << "IF_UNIT_QUEUE at end of " << cycle << "\t";
+            for(int i = 0; i < IFunit_instructions_tokened.size(); i++){
+              cout << "size: " << IFunit_instructions_tokened[i].size() << ", ";
+              for(int j = 0; j < IFunit_instructions_tokened[i].size(); j++){
+                cout << IFunit_instructions_tokened[i].at(j) << " ";
               }
-
-              if(i < post_alu2_queue_tokened.size() - 1){
-                cout << post_alu2_queue.size() << "\'";
-                post_alu2_queue_tokened[i] = post_alu2_queue_tokened.at(i+1);
-                post_alu2_queue_tokened.erase(i+1);
-              }
-              else if(i == post_alu2_queue_tokened.size() - 1){
-                post_alu2_queue_tokened.erase(i);
-              }
-              cout << " entered WB at " << cycle << "\n";
-
-            }
-          }
-
-
-          cout << "\n\n";
-          cout << "PREISSUE_QUEUE at end of " << cycle << "\t";
-          for(int i = 0; i < preissue_instructions_tokened.size(); i++){
-            cout << "size: " << preissue_instructions_tokened[i].size() << ", ";
-            for(int j = 0; j < preissue_instructions_tokened[i].size(); j++){
-              cout << preissue_instructions_tokened[i].at(j) << " ";
-            }
-            cout << "  |||  ";
-          }
-          cout << "\n";
-
-          cout << "PRE_ALU1_QUEUE at end of " << cycle << "\t";
-          for(int i = 0; i < pre_alu1_instructions_tokened.size(); i++){
-            cout << "size: " << pre_alu1_instructions_tokened[i].size() << ", ";
-            for(int j = 0; j < pre_alu1_instructions_tokened[i].size(); j++){
-              cout << pre_alu1_instructions_tokened[i].at(j) << " ";
+              cout << "  |||  ";
             }
             cout << "\n";
-          }
-          cout << "\n";
 
-          cout << "PRE_ALU2_QUEUE at end of " << cycle << "\t";
-          for(int i = 0; i < pre_alu2_instructions_tokened.size(); i++){
-            cout << "size: " << pre_alu2_instructions_tokened[i].size() << ", ";
-            for(int j = 0; j < pre_alu2_instructions_tokened[i].size(); j++){
-              cout << pre_alu2_instructions_tokened[i].at(j) << " ";
+            cout << "Registers being waited on... ";
+            for(int i = 0; i < registers_waited_on.size(); i++){
+              for(int j = 0; j < registers_waited_on[i].size(); j++){
+                cout << registers_waited_on[i].at(j) << " ";
+              }
+              cout << "\n";
             }
-            cout << "  |||  ";
-          }
-          cout << "\n";
+            cout << "\n";
 
-          cout << "POST_ALU2_QUEUE at end of " << cycle << "\t";
-          for(int i = 0; i < post_alu2_queue_tokened.size(); i++){
-            cout << "size: " << post_alu2_queue_tokened[i].size() << ", ";
-            for(int j = 0; j < post_alu2_queue_tokened[i].size(); j++){
-              cout << post_alu2_queue_tokened[i].at(j) << " ";
+            cout << "PREISSUE_QUEUE at end of " << cycle << "\t";
+            for(int i = 0; i < preissue_instructions_tokened.size(); i++){
+              cout << "size: " << preissue_instructions_tokened[i].size() << ", ";
+              for(int j = 0; j < preissue_instructions_tokened[i].size(); j++){
+                cout << preissue_instructions_tokened[i].at(j) << " ";
+              }
+              cout << "  |||  ";
             }
-            cout << "  |||  ";
-          }
-          cout << "\n";
+            cout << "\n";
 
-          cout << "Instructions being finished (WB) at end of " << cycle << "\t";
-          for(int i = 0; i < write_back_tokened.size(); i++){
-            cout << "size: " << write_back_tokened[i].size() << ", ";
-            for(int j = 0; j < write_back_tokened[i].size(); j++){
-              cout << write_back_tokened[i].at(j) << " ";
+            cout << "PRE_ALU1_QUEUE at end of " << cycle << "\t";
+            for(int i = 0; i < pre_alu1_instructions_tokened.size(); i++){
+              cout << "size: " << pre_alu1_instructions_tokened[i].size() << ", ";
+              for(int j = 0; j < pre_alu1_instructions_tokened[i].size(); j++){
+                cout << pre_alu1_instructions_tokened[i].at(j) << " ";
+              }
+              cout << "\n";
             }
-            cout << "  |||  ";
+            cout << "\n";
+
+            cout << "PRE_ALU2_QUEUE at end of " << cycle << "\t";
+            for(int i = 0; i < pre_alu2_instructions_tokened.size(); i++){
+              cout << "size: " << pre_alu2_instructions_tokened[i].size() << ", ";
+              for(int j = 0; j < pre_alu2_instructions_tokened[i].size(); j++){
+                cout << pre_alu2_instructions_tokened[i].at(j) << " ";
+              }
+              cout << "  |||  ";
+            }
+            cout << "\n";
+
+            cout << "POST_ALU2_QUEUE at end of " << cycle << "\t";
+            for(int i = 0; i < post_alu2_queue_tokened.size(); i++){
+              cout << "size: " << post_alu2_queue_tokened[i].size() << ", ";
+              for(int j = 0; j < post_alu2_queue_tokened[i].size(); j++){
+                cout << post_alu2_queue_tokened[i].at(j) << " ";
+              }
+              cout << "  |||  ";
+            }
+            cout << "\n";
+
+            cout << "Instructions being finished (WB) at end of " << cycle << "\t";
+            for(int i = 0; i < write_back_tokened.size(); i++){
+              cout << "size: " << write_back_tokened[i].size() << ", ";
+              for(int j = 0; j < write_back_tokened[i].size(); j++){
+                cout << write_back_tokened[i].at(j) << " ";
+              }
+              cout << "  |||  ";
+            }
+            cout << "\n\n\n";
+
+
+
+            // If there is something in the write back queue
+            if(write_back_tokened.size() > 0){
+              notWB = false;
+            }
+            // If the write back queue is empty?
+            else{
+              cout << "printing not writebacked simulation " << "\n";
+              print_Simulation(mem_value, cycle, register_values, preissue_instruction, IFunit_instructions_tokened, IFunit, pre_alu1, pre_alu2, post_alu2_queue, pre_mem_queue);
+              //write_back_tokened.clear();
+            }
+          } // End of the if(timeToDoBranch == false)
+          // If a branch instruction is now executing, remove it from the executing queue and then allow it to go down
+          // Only way (movetoExecute = true) happens is when a pipeline is unstalled and there are no registeres being waited on.
+          if(movetoExecute == true){
+            //IFunit.erase(1);
+            //IFunit_instructions_tokened.erase(1);
+            movetoExecute = false;
+            cout << " in here " << "\n";
           }
-          cout << "\n\n\n";
-
-
-
-          // If there is something in the write back queue
-          if(write_back_tokened.size() > 0){
-            notWB = false;
-          }
-          // If the write back queue is empty?
-          else{
-            cout << "printing not writebacked simulation " << "\n";
-            print_Simulation(mem_value, cycle, register_values, preissue_instruction, IFunit_instructions_tokened, IFunit, pre_alu1, pre_alu2, post_alu2_queue, pre_mem_queue);
-            //write_back_tokened.clear();
-          }
-
-
         } // End of the not writeback loop?
+
       }   // End of if(iteration == 2) will go do stuff below, unless specified otherwise
 
-      // This is the write-back stage???? |
+      // This is the write-back stage???? |  Only gets to this part of the program if its finishing WB
       //                                  V
 
       //-------------- Related to the write-back portion of the pipeline --------------------//
-      cout << "Im in dis bitch at: " << cycle << "\n";
-      //for(int i = 0; i < )
-      if(notWB = false){
-        write_back_tokened.clear();
+      if(iteration == 2){
+        cout << "Writeback simulation : " << cycle << "\n";
+      }
+      // If the pipeline is stalled waiting bc of branch or something, after an instruction reaches
+      // the writeback stage, if it's destination register is in the sources for the branch instr, unstall it
+      if(stalled == true){
+        for(int i = 0; i < registers_waited_on[0].size(); i++){
+          // If in the registers being waited on list, the write back destination matches, remove it from the waiting list
+          if(registers_waited_on[0].at(i) == write_back_tokened[0].at(2)){
+            // If the size is greater than 1, swap the that element with the last element and then pop it off.
+            if(registers_waited_on[0].size() > 1){
+              string temp = "";
+              temp = registers_waited_on[0].at(i);
+              registers_waited_on[0].at(i) = registers_waited_on[0].at(registers_waited_on[0].size() - 1);
+              registers_waited_on[0].at(registers_waited_on[0].size() - 1) = temp;
+              registers_waited_on[0].pop_back();
+            }
+            // If the size of registers being waited on is 1, just pop it off.
+            else if(registers_waited_on[0].size() == 1){
+              registers_waited_on[0].pop_back();
+            }
+          }
+        }
+        if(registers_waited_on[0].size() == 0){
+          stalled = false;
+          branchInstruction = false;
+          movetoExecute = true;
+        }
+
+        // If the pipeline is stalled waiting bc of branch or something, after an instruction reaches
+        // the writeback stage, if it's destination register is in the sources for the branch instr, unstall it
+        if(IFunit_instructions_tokened[0].at(1) == write_back_tokened[0].at(2)){
+          stalled = false;
+          branchInstruction = false;
+        }
+
+        cout << "Registers in wait list... ";
+        for(int i = 0; i < registers_waited_on.size(); i++){
+          for(int j = 0; j < registers_waited_on[i].size(); j++){
+            cout << registers_waited_on[i].at(j) << " ";
+          }
+          cout << "\n";
+        }
+        cout << "\n";
+      }
+      // Clears the write_back_queue because it's being done here.
+      for(int i = 0; i < write_back_tokened.size(); i++){
+        write_back_tokened.erase(i);
       }
 
       //-------------------------------------------------------------------------------------//
@@ -1074,6 +1173,7 @@ int main(int args, char **argv){
       categorybits = it->second.substr(0,2);
       // Start at position 2 - 4 length
       opcode = it->second.substr(2,4);
+      cout << it->first << "\n";
       instruction = "";
       int rsReg = 0;
       int rtReg = 0;
@@ -1184,8 +1284,10 @@ int main(int args, char **argv){
             if(register_values.find(rsReg)->second == register_values.find(rtReg)->second){
               //cout << "MEMORY ADDRESS:" << (it->first + offset + 4) << "\n";
               jumper = mem_instruction.find(it->first + offset);
+              cout << "TAKEN";
             }
             else{
+              cout << "NOT TAKEN";
               jumper = it;
             }
           }
@@ -1942,7 +2044,7 @@ int main(int args, char **argv){
       write_Disassembly(instruction_disassembly, mem_value, mem_data);
       // Reset the cycle for the beginning of iteration 2 (simulation)
       cycle = 0;
-      cout << "Cycle at end of iteration 1: " << cycle << "\n";
+      //cout << "Cycle at end of iteration 1: " << cycle << "\n";
     }
 
     // Only reaches here once the code is done due to the it = jumper line in iteration == 2 causing the program to shoot back up.
