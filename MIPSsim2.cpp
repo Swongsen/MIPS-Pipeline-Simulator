@@ -180,7 +180,10 @@ void print_Simulation(map<int,int> mem_value,
     }
   }
 
-  cout << "Pre-MEM Queue: \n";
+  if(pre_mem_queue != ""){
+    cout << "Pre-MEM Queue: [" << pre_mem_queue << "]\n";
+  }
+  else
   cout << "Post-MEM Queue: \n";
 
   cout << "Pre-ALU2 Queue: \n";
@@ -622,6 +625,7 @@ int main(int args, char **argv){
   bool doneExecuting = false;
   bool noHazards = true;
   bool noRaw = true;
+  bool memoryReady = true;
   // ------------------------------------------------- //
 
   // Base address to start at
@@ -861,9 +865,8 @@ int main(int args, char **argv){
             }
             // Else if there is only space for 1 more in the preissue. Add case for IF for waiting / executing instructions
             else if(preissueSize == 3 && branch_stalled != true && full_stalled != true){
-              cout << "size 3 here";
               instruction1 = instructions_list[ifNum];
-              cout << "instruction: " << instruction1 << "\n";
+              cout << "adding fourth instruction: " << instruction1 << "\n";
               ifNum++;
               // Variables needed to tokenize the string
               stringstream ss(instruction1);
@@ -892,10 +895,10 @@ int main(int args, char **argv){
               addto_preissue(instruction1, preissue_instruction, 3);
               preissueSize++;
               preissueSpot++;
-            }
+            } // End of adding instructions to the preissue
 
             // Moving instructions from the preissue to respective ALUs, while there is still an open prealu and no hazards in the instructions
-            //while(noHazards == true && (prealu1_signal == true || prealu2_signal == true)){
+            // while(noHazards == true && (prealu1_signal == true || prealu2_signal == true)){
             // Goes through every instruction in the preissue
             cout << "Current cycle: " << cycle << "\n";
             for(int i = 0; i < preissueSize; i++){
@@ -906,13 +909,39 @@ int main(int args, char **argv){
 
                 // If the instruction is a load or store. Size 4 vector means it has 1 cycle spot + 3 arguments
                 if(preissue_instructions_tokened[i].size() == 4 && branch_stalled != true){
-                  cout << "lw/sw\n";
+                  if(i == 0){
+                    if(preissue_instructions_tokened[i].at(1) == "SW"){
+                      memory_registers_waited.insert(pair<int, vector<string>>(0, vector<string>()));
+                      memory_registers_waited[0].push_back(preissue_instructions_tokened[i].at(2));
+                      memoryReady = false;
+                    }
+                    else if(preissue_instructions_tokened[i].at(1) == "LW"){
+                      memory_registers_waited.insert(pair<int, vector<string>>(1, vector<string>()));
+                      memory_registers_waited[1].push_back(preissue_instructions_tokened[i].at(2));
+                      memoryReady = false;
+                    }
+                  }
+                  else if( i != 0){
+                    if(preissue_instructions_tokened[i-1].at(1) == "SW"){
+                      memory_registers_waited.insert(pair<int, vector<string>>(0, vector<string>()));
+                      memory_registers_waited[0].push_back(preissue_instructions_tokened[i].at(2));
+                      memoryReady = false;
+                    }
+                    else if(preissue_instructions_tokened[i-1].at(1) == "LW"){
+                      memory_registers_waited.insert(pair<int, vector<string>>(1, vector<string>()));
+                      memory_registers_waited[1].push_back(preissue_instructions_tokened[i].at(2));
+                      memoryReady = false;
+                    }
+                  }
                 }
                 // If the instrction is not a load or store. Size 5 vector length means it is an immediate or normal instruction
                 else if(preissue_instructions_tokened[i].size() == 5 && branch_stalled != true){
                   // For the previous instructions, if the instruction's source registers are the previous instructions destination, then it is a raw hazard
                   for(int k = i-1; k >= 0; k--){
                     if(preissue_instructions_tokened[k].at(1) == "LW" || preissue_instructions_tokened[k].at(1) == "SW" && preissue_instructions_tokened[i].at(3) == preissue_instructions_tokened[k].at(2) || preissue_instructions_tokened[i].at(4) == preissue_instructions_tokened[k].at(2)){
+                      if(preissue_instructions_tokened[i].size() == 4){
+                        memoryReady = false;
+                      }
                       cout << "falsey";
                       noRaw = false;
                     }
@@ -925,6 +954,7 @@ int main(int args, char **argv){
                           if(preissue_instructions_tokened[i].at(3) == it->second.at(j) || preissue_instructions_tokened[i].at(4) == it->second.at(j)){
                             cout << "TrueE";
                             noRaw = false;
+                          }
                         }
                       }
                     }
@@ -956,6 +986,7 @@ int main(int args, char **argv){
                 }
                 cout << "memsource-> " << memSource;
                 cout << "possible mem:" << possible_memory_instructions << "\n";
+                // Move the instruction from the preissue to prealu1
                 if(possible_memory_instructions > 0 && prealu1_signal == true && pre_alu1.size() < 2 && noHazards == true){
                   int pre1size = pre_alu1_instructions_tokened.size();
                   pre_alu1_instructions_tokened.insert(pair<int, vector<string>>(pre1size, vector<string>()));
@@ -986,12 +1017,17 @@ int main(int args, char **argv){
                   cout << preissue_instruction.size() << " ";
                   prealu1_signal = false;
 
+                  // If this was the first instruction, reset and look at next ready instruction
                   if(prealu2_signal == true){
                     i = -1;
                   }
 
                 }
-                else if(noRaw == true && (preissue_instructions_tokened[i].at(1) != "SW" && preissue_instructions_tokened[i].at(1) != "LW") && (prealu2_signal == true && pre_alu2.size() < 2)){
+                // Else if not a load or store instruction, move to preALU2 while making sure memory is ready and there are no RAW hazard.
+                else if(memoryReady == true &
+                        noRaw == true &&
+                       (preissue_instructions_tokened[i].at(1) != "SW" && preissue_instructions_tokened[i].at(1) != "LW") &&
+                       (prealu2_signal == true && pre_alu2.size() < 2)){
 
                   cout << "prealu2 test" << "\n";
                   int pre2size = pre_alu2_instructions_tokened.size();
@@ -1055,8 +1091,8 @@ int main(int args, char **argv){
             for(int i = 0; i < pre_alu1_instructions_tokened.size(); i++){
               cout << "Instruction: " << pre_alu1.at(i) << " entered prealu1 at " << pre_alu1_instructions_tokened[i].at(0) << "\n";
               if(stoi(pre_alu1_instructions_tokened[i].at(0)) < cycle){
-                pre_mem_queue = pre_alu2.at(i);
-
+                pre_mem_queue = pre_alu1.at(i);
+                cout << "prememqueue: " << pre_mem_queue;
                 if(i < pre_alu1_instructions_tokened.size() - 1){
                   pre_alu1[i] = pre_alu1[i+1];
                   pre_alu1_instructions_tokened[i] = pre_alu1_instructions_tokened.at(i+1);
@@ -1161,8 +1197,16 @@ int main(int args, char **argv){
               }
             }
 
+            cout << "\nMemory Registers being waited on...";
+            for(map<int, vector<string>>::iterator it = memory_registers_waited.begin(); it != memory_registers_waited.end(); it++){
+              cout << it->first << " | ";
+              for(int i = 0; i < it->second.size(); i++){
+                cout << it->second.at(i) << " ";
+              }
+              cout << "||||";
+            }
 
-            cout << "\n\n";
+            cout << "\n";
             cout << "IF_UNIT_QUEUE at end of " << cycle << "\t";
             for(int i = 0; i < IFunit_instructions_tokened.size(); i++){
               cout << "size: " << IFunit_instructions_tokened[i].size() << ", ";
@@ -1297,9 +1341,15 @@ int main(int args, char **argv){
       // Clears the write_back_queue because it's being done here.
       for(int i = 0; i < write_back_tokened.size(); i++){
         write_back_tokened.erase(i);
-        destination_registers_inpipeline.clear();
-        source_registers_inpipeline.clear();
       }
+
+      // Flushing pipeline errors so they can be re-checked after write-back finish.
+      destination_registers_inpipeline.clear();
+      source_registers_inpipeline.clear();
+      memory_registers_waited.clear(); // Clear the LW instruction pipe specifically.
+      noHazards = true;
+      noRaw = true;
+      // // // // // // //
 
       if(iteration == 2){
         cout << "Writeback simulation : " << cycle << "\n";
