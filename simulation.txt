@@ -103,3 +103,14 @@ Pre-MEM Queue:
 Post-MEM Queue: 
 Pre-ALU2 Queue: 
 	Entry 0: 
+	Entry 1: 
+Post-ALU2 Queue: 
+
+Registers
+R00:	0	0	2	0	0	0	0	0	
+R08:	0	0	0	0	0	0	0	0	
+R16:	0	0	0	0	0	0	0	0	
+R24:	0	0	0	0	0	0	0	0	
+Data
+300:	-1	-2	-3	1	2	4	-4	10	
+332:	7	9	1	0	-1	1	-1	0	
