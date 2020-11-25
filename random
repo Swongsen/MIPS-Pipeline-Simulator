@@ -20,6 +20,53 @@ for(map<int, vector<string>>::iterator it = source_registers_inpipeline.begin();
 // }
 // cout << "\n";
 
+// If the instruction up next is a LW/SW, check it for hazards.
+if(preissue_instructions_tokened[i].at(1) == "SW" || preissue_instructions_tokened[i].at(1) == "LW"){
+  memSource = memory_sourceString(preissue_instructions_tokened, i, memSource);
+  possible_memory_instructions++;
+  cout <<"yeo\n";
+  // This checks if the source for this load or store word instruction is the destination of a previous register. hazard detected it if it is
+  for(map<int, vector<string>>::iterator it = destination_registers_inpipeline.begin(); it != destination_registers_inpipeline.end(); it++){
+    for(int i = 0; i < it->second.size(); i++){
+      if(it->first <= cycle){
+        if(memSource == it->second.at(i)){
+          cout << "HAZARD:: \n";
+          noHazards = false;
+        }
+      }
+    }
+  }
+}
+
+
+// If the instrction is not a load or store. Size 5 vector length means it is an immediate or normal instruction
+if(preissue_instructions_tokened[i].size() == 5 && branch_stalled != true){
+  cout << "garbage";
+  // For the previous instructions, if the instruction's source registers are the previous instructions destination, then it is a raw hazard
+  for(int k = i-1; k >= 0; k--){
+    if(preissue_instructions_tokened[k].at(1) == "LW" || preissue_instructions_tokened[k].at(1) == "SW" && preissue_instructions_tokened[i].at(3) == preissue_instructions_tokened[k].at(2) || preissue_instructions_tokened[i].at(4) == preissue_instructions_tokened[k].at(2)){
+      if(preissue_instructions_tokened[i].size() == 4){
+        memoryReady = false;
+      }
+      cout << "falsey";
+      noRaw = false;
+    }
+  }
+  // if there is no hazard there, check if the instruction's destination register is any of the source registers of the previous
+  if(noRaw == true){
+    for(map<int, vector<string>>::iterator it = source_registers_inpipeline.begin(); it != source_registers_inpipeline.end(); it++){
+      for(int j = 0; j < it->second.size(); j++){
+        if(it->first <= cycle){
+          if(preissue_instructions_tokened[i].at(3) == it->second.at(j) || preissue_instructions_tokened[i].at(4) == it->second.at(j)){
+            cout << "TrueE";
+            noRaw = false;
+          }
+        }
+      }
+    }
+  }
+
+}// end of not memory instruction checking for hazards
 
 
 
