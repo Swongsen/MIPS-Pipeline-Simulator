@@ -72,32 +72,19 @@ if(preissue_instructions_tokened[i].size() == 5 && branch_stalled != true){
 
 
 
-if(i > 0){
-  for(int w = i-1; w > 0; w--){
-
-// For all the instructions above an instruction, i.e: if this is i = 1, or 2nd instruction, checks i=0 or 1st instruction for if destination registers are the same
-// Check the first argument. If it is the same as an SW, store it in the source(0) memory waited on.
-// and if it is a LW, store it in the destination(1) memory waited on.
-
-// If the registers match
-if(preissue_instructions_tokened[w].at(2) == preissue_instructions_tokened[i].at(2)){
-  // If the instruction previous was an SW, the memory register is a source and is stored as such
-    if(register_memorytype_waiting.count(preissue_instructions_tokened[w]) == 0){
-      memory_registers_waited.insert(pair<string, int>(preissue_instructions_tokened[w], 0);
-      memoryReady = false;
+if(post_alu2_queue.size() > 0){
+  post_alu2_queue.clear();
+  post_alu2_queue_tokened.clear();
+  for(int j = 0; j < registers_waited_on[0].size(); j++){
+    if(registers_waited_on[0].size() > 1){
+      string temp = "";
+      temp = registers_waited_on[0].at(j);
+      registers_waited_on[0].at(j) = registers_waited_on[0].at(registers_waited_on[0].size() - 1);
+      registers_waited_on[0].at(registers_waited_on[0].size() - 1) = temp;
+      registers_waited_on[0].pop_back();
     }
-    else if(memory_registers_waited.count(preissue_instructions_tokened[w]) > 0){
-      memoryReady = false;
+    else if(registers_waited_on[0].size() == 1){
+      registers_waited_on[0].pop_back();
     }
   }
-  // If the instruction previous was an LW, the memory register is a destination and is stored as such
-  else if(preissue_instructions_tokened[w].at(1) == "LW"){
-    if(memory_registers_waited[1].count(preissue_instructions_tokened[w]) == 0){
-      memory_registers_waited.insert(pair<int, vector<string>>(1, vector<string>()));
-      memory_registers_waited[1].push_back(preissue_instructions_tokened[i].at(2));
-      memoryReady = false;
-    }
-    else if(memory_registers_waited[1].count(preissue_instructions_tokened[w]) > 0){
-      memoryReady = false;
-    }
-  }
+}
