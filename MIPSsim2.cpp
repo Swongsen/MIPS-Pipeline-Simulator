@@ -1264,8 +1264,17 @@ int main(int args, char **argv){
                     // If SW, check its destination registers with any registers in pipeline
                     else if(preissue_instructions_tokened[i].at(1) == "SW"){
                       destination = memory_sourceString(preissue_instructions_tokened, i, destination);
-                      if(destination == preissue_instructions_tokened[w].at(2)){
+                      if(preissue_instructions_tokened[w].at(1) != "SW" && preissue_instructions_tokened[w].at(2) == preissue_instructions_tokened[i].at(2)){
                         noWaw = false;
+                      }
+                      // If the instruction before it IS a store word instruction
+                      else if(preissue_instructions_tokened[w].at(1) == "SW"){
+                        // For store words, the destination is what's in the 300(register), but the sourceString function works the same
+                        string prev_instr_destination = memory_sourceString(preissue_instructions_tokened, w, destination);
+                        cout << "Destination from this SW: " << destination;
+                        if(destination == prev_instr_destination){
+                          noWaw = false;
+                        }
                       }
                     }
                     else{
