@@ -588,21 +588,21 @@ void print_pipelinedebugging_states(map<int, vector<string>> registers_waited_on
                                     map<int, vector<string>> write_back_tokened,
                                     int cycle, int preissueSize){
    cout << "\nRegisters being waited on to branch... ";
-   for(int i = 0; i < registers_waited_on.size(); i++){
-     for(int j = 0; j < registers_waited_on[i].size(); j++){
-       cout << registers_waited_on[i].at(j) << " ";
+   for(map<int, vector<string>>::iterator rItr = registers_waited_on.begin(); rItr != registers_waited_on.end(); rItr++){
+     for(int k = 1; k < rItr->second.size(); k++){
+       cout << rItr->second.at(k) << " ";
      }
      cout << "\n";
    }
 
-   cout << "Destys: ";
+   cout << "\nDestys: ";
    if(destination_registers_inpipeline.size() > 0){
      for(map<int, vector<string>>::iterator destItr = destination_registers_inpipeline.begin(); destItr != destination_registers_inpipeline.end(); destItr++){
        cout << "Cycle entered: " << destItr->first << "|";
        for(int i = 0; i < destItr->second.size(); i++){
          cout << destItr->second.at(i) << " ";
        }
-       cout << ", ";
+       cout << " ";
      }
    }
 
@@ -613,7 +613,7 @@ void print_pipelinedebugging_states(map<int, vector<string>> registers_waited_on
        for(int i = 0; i < srcItr->second.size(); i++){
          cout << srcItr->second.at(i) << " ";
        }
-       cout << ",";
+       cout << " ";
      }
    }
 
@@ -708,6 +708,52 @@ void print_pipelinedebugging_states(map<int, vector<string>> registers_waited_on
    cout << "\n\n\n";
 }
 
+void store_unique_destinations(map<int, vector<string>> &destination_registers_inpipeline, bool alreadyExists, int cycle, string temp_str){
+  alreadyExists = false;
+  for(map<int, vector<string>>::iterator destR = destination_registers_inpipeline.begin(); destR != destination_registers_inpipeline.end(); destR++){
+    for(int k = 1; k < destR->second.size(); k++){
+      if(destR->second.at(k) == temp_str)
+        alreadyExists = true;
+    }
+  }
+  if(alreadyExists == false){
+    cout << "added. does not exist: " << temp_str;
+    destination_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
+    destination_registers_inpipeline[cycle].push_back(temp_str);
+  }
+}
+
+void store_unique_source(map<int, vector<string>> &source_registers_inpipeline, bool alreadyExists, int cycle, string temp_str){
+  alreadyExists = false;
+  for(map<int, vector<string>>::iterator srcR = source_registers_inpipeline.begin(); srcR != source_registers_inpipeline.end(); srcR++){
+    for(int k = 1; k < srcR->second.size(); k++){
+      if(srcR->second.at(k) == temp_str)
+        alreadyExists = true;
+    }
+  }
+  if(alreadyExists == false){
+    cout << "addedSrc. does not exist" << temp_str;
+    source_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
+    source_registers_inpipeline[cycle].push_back(temp_str);
+  }
+}
+
+void store_branch_registerwait(map<int, vector<string>> &registers_waited_on, bool alreadyExists, int cycle, string temp_str, map<int, vector<string>> destination_registers_inpipeline){
+  alreadyExists = false;
+  for(map<int, vector<string>>::iterator brItr = destination_registers_inpipeline.begin(); brItr != destination_registers_inpipeline.end(); brItr++){
+    for(int k = 1; k < brItr->second.size(); k++){
+      if(brItr->second.at(k) == temp_str){
+        alreadyExists = true;
+      }
+    }
+  }
+  if(alreadyExists == true){
+    cout << "Branch destination register needed to wait on: " << temp_str;
+    registers_waited_on.insert(pair<int, vector<string>>(cycle, vector<string>()));
+    registers_waited_on[cycle].push_back(temp_str);
+  }
+}
+
 int main(int args, char **argv){
 
   // #argv[1] should contain the input file
@@ -779,6 +825,10 @@ int main(int args, char **argv){
   bool jumpImm = false;
   bool memoryLoadReady = false;
   bool registerWB = false;
+  bool notSWinstruction = true; // used when storing source / destination registers into inpipeline register mapping
+  bool notLWinstruction = true;
+  bool alreadyExists = false;
+  bool no_registers_towaiton = true;
   // ------------------------------------------------- //
 
   // Base address to start at
@@ -836,6 +886,7 @@ int main(int args, char **argv){
   //cout << "MIPS Code \t\t\t" << "  Memory \t" <<  "Instruction" << endl;
   int iteration = 1;
   int instructionsAmt = instructionsCount;
+
   while(iteration <= 2){
     // Resetting the instructionsCount to place correctly place in the instructionList map
     instructionsCount = 0;
@@ -862,7 +913,8 @@ int main(int args, char **argv){
           noRaw = true;
           noWaw = true;
           noHazards = true;
-          //post_mem_queue.clear();
+          notSWinstruction = true;
+          notLWinstruction = true;
           cout << "--------------------------------------\n";
           cout << "Beginning of Cycle:" << cycle << "\n";
           cout << "Instructions: " << instructionsAmt << "\n";
@@ -949,6 +1001,12 @@ int main(int args, char **argv){
                     preissue_instructions_tokened[preissueSpot].push_back(to_string(cycle));
                     preissue_instructions_tokened[preissueSpot].push_back(temp_str);
                     pos++;
+                    // For the first part of the instruction, determine if it is a load or store instruction
+                    if(temp_str == "SW"){
+                      notSWinstruction = false;
+                    }else if(temp_str == "LW"){
+                      notLWinstruction = false;
+                    }
                   }
                   // Else, if it is a branch operation, insert it into one of two spots (0 for waiting / stlaled, and 1 for executing )
                   else if(branchInstruction == true){
@@ -968,9 +1026,9 @@ int main(int args, char **argv){
                       IFunit_instructions_tokened[1].push_back(to_string(cycle));
                       IFunit_instructions_tokened[1].push_back(temp_str);
                     }
-
                   }
                 }
+                // If not in the first position
                 else{
                   // If there is an ',' in the token string, remove it so it can be placed in map without it.
                   for(int i = 0; i < temp_str.length(); i++){
@@ -978,12 +1036,59 @@ int main(int args, char **argv){
                       temp_str = temp_str.substr(0, i);
                     }
                   }
-                  // Store the token in the preissue map
+                  // Store the token in the preissue map if it is not a branch instruction
                   if(branchInstruction == false){
                     preissue_instructions_tokened[preissueSpot].push_back(temp_str);
-                    if(pos == 1){
-                      destination_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
-                      destination_registers_inpipeline[cycle].push_back(temp_str);
+                    if(notSWinstruction == true){
+                      if(pos == 1){
+                        store_unique_destinations(destination_registers_inpipeline, alreadyExists, cycle, temp_str);
+                      }
+                      else{
+                        // If not in the first position and not a load instruction, start adding the sources
+                        if(notLWinstruction == true){
+                          if(temp_str.at(0) != '#'){
+                            //for(map<)
+                            cout << "temp_str: " << temp_str;
+                            store_unique_source(source_registers_inpipeline, alreadyExists, cycle, temp_str);
+                          }
+                        }
+                        // If the instruction is a load instruction
+                        else if(notLWinstruction == false){
+                          cout << "\n LOADDD INSTRUCTION ";
+                          string strbild = "";
+                          int templen = temp_str.length();
+                          for(int b = 0; b < templen; b++){
+                            if(temp_str.at(b) == 'R'){
+                              strbild = strbild + 'R';
+                              for(int j = b+1; j < templen-1; j++){
+                                strbild = strbild + temp_str.at(j);
+                              }
+                            }
+                          }
+                          store_unique_source(source_registers_inpipeline, alreadyExists, cycle, strbild);
+                          cout << "GOT THE LW DESTINATION: " << strbild;
+                        }
+                      }
+                    }
+                    // If the instruction is a STORE WORD
+                    else if(notSWinstruction == false){
+                      if(pos == 1){
+                        store_unique_source(source_registers_inpipeline, alreadyExists, cycle, temp_str);
+                      }
+                      else{
+                        string strbild = "";
+                        int templen = temp_str.length();
+                        for(int b = 0; b < templen; b++){
+                          if(temp_str.at(b) == 'R'){
+                            strbild = strbild + 'R';
+                            for(int j = b+1; j < templen-1; j++){
+                              strbild = strbild + temp_str.at(j);
+                            }
+                          }
+                        }
+                        store_unique_destinations(destination_registers_inpipeline, alreadyExists, cycle, strbild);
+                        cout << "GOT THE SW DESTINATION: " << strbild;
+                      }
                     }
                     pos++;
                   }
@@ -991,14 +1096,7 @@ int main(int args, char **argv){
                   else if(branchInstruction == true){
                     if(ready == false){
                       IFunit_instructions_tokened[0].push_back(temp_str);
-                      for(map<int, vector<string>>::iterator dItr = destination_registers_inpipeline.begin(); dItr != destination_registers_inpipeline.end(); dItr++){
-                        if(dItr-> first < cycle){
-                          for(int k = 0; k < dItr->second.size(); k++){
-                            cout << "\twhore " << dItr->second.at(k);
-                          }
-                        }
-                      }
-                      registers_waited_on[0].push_back(temp_str);
+                      store_branch_registerwait(registers_waited_on, alreadyExists, cycle, temp_str, destination_registers_inpipeline);
                     }
                     else if(ready == true){
                       IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1029,14 +1127,15 @@ int main(int args, char **argv){
               if(branchInstruction == true){
                 instruction2 = "";
                 ifNum = ifNum - 1;
-                if(ready == false){
-                  // Take out the offset of the list of registers being waited on
-                  registers_waited_on[0].pop_back();
-                }
+                // if(ready == false){
+                //   // Take out the offset of the list of registers being waited on
+                //   registers_waited_on[cycle].pop_back();
+                // }
               }
 
               temp_str = "";
               pos = 0;
+              notLWinstruction = true;
               // If the first instruction was not a branch type and not a break instruction.
               if(breakInstr == false && instruction2 != ""){
                 while(getline(ss2, temp_str, ' ')){
@@ -1072,6 +1171,11 @@ int main(int args, char **argv){
                       preissue_instructions_tokened[preissueSpot].push_back(to_string(cycle));
                       preissue_instructions_tokened[preissueSpot].push_back(temp_str);
                       pos++;
+                      if(temp_str == "SW"){
+                        notSWinstruction = false;
+                      }else if(temp_str == "LW"){
+                        notLWinstruction = false;
+                      }
                     }
                     // Else, if it is a branch operation, insert it into one of two spots (0 for waiting / stlaled, and 1 for executing )
                     else if(branchInstruction == true){
@@ -1102,11 +1206,57 @@ int main(int args, char **argv){
                       }
                     }
                     // Store the token in the preissue map
+                    // Store the token in the preissue map
                     if(branchInstruction == false){
                       preissue_instructions_tokened[preissueSpot].push_back(temp_str);
-                      if(pos == 1){
-                        destination_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
-                        destination_registers_inpipeline[cycle].push_back(temp_str);
+                      if(notSWinstruction == true){
+                        if(pos == 1){
+                          store_unique_destinations(destination_registers_inpipeline, alreadyExists, cycle, temp_str);
+                        }
+                        else{
+                          // If not in the first position and not a load instruction, start adding the sources
+                          if(notLWinstruction == true){
+                            if(temp_str.at(0) != '#'){
+                              cout << "temp_str: " << temp_str;
+                              store_unique_source(source_registers_inpipeline, alreadyExists, cycle, temp_str);
+                            }
+                          }
+                          // If the instruction is a load instruction
+                          else if(notLWinstruction == false){
+                            string strbild = "";
+                            int templen = temp_str.length();
+                            for(int b = 0; b < templen; b++){
+                              if(temp_str.at(b) == 'R'){
+                                strbild = strbild + 'R';
+                                for(int j = b+1; j < templen-1; j++){
+                                  strbild += temp_str.at(j);
+                                }
+                              }
+                            }
+                            store_unique_source(source_registers_inpipeline, alreadyExists, cycle, strbild);
+                            cout << "GOT THE LW DESTINATION: " << strbild;
+                          }
+                        }
+                      }
+                      // If the instruction is a STORE WORD
+                      else if(notSWinstruction == false){
+                        if(pos == 1){
+                          store_unique_source(source_registers_inpipeline, alreadyExists, cycle, temp_str);
+                        }
+                        else{
+                          string strbild = "";
+                          int templen = temp_str.length();
+                          for(int b = 0; b < templen; b++){
+                            if(temp_str.at(b) == 'R'){
+                              strbild = strbild + 'R';
+                              for(int j = b+1; j < templen-1; j++){
+                                strbild += temp_str.at(j);
+                              }
+                            }
+                          }
+                          store_unique_destinations(destination_registers_inpipeline, alreadyExists, cycle, strbild);
+                          cout << "GOT THE SW DESTINATION: " << strbild;
+                        }
                       }
                       pos++;
                     }
@@ -1114,7 +1264,7 @@ int main(int args, char **argv){
                     else if(branchInstruction == true){
                       if(ready == false){
                         IFunit_instructions_tokened[0].push_back(temp_str);
-                        registers_waited_on[0].push_back(temp_str);
+                        store_branch_registerwait(registers_waited_on, alreadyExists, cycle, temp_str, destination_registers_inpipeline);
                       }
                       else if(ready == true){
                         IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1185,6 +1335,11 @@ int main(int args, char **argv){
                     preissue_instructions_tokened.insert(pair<int, vector<string>>(3, vector<string>()));
                     preissue_instructions_tokened[3].push_back(to_string(cycle));
                     preissue_instructions_tokened[3].push_back(temp_str);
+                    if(temp_str == "SW"){
+                      notSWinstruction = false;
+                    }else if(temp_str == "LW"){
+                      notLWinstruction = false;
+                    }
                     pos++;
                   }
                 }
@@ -1195,13 +1350,64 @@ int main(int args, char **argv){
                       temp_str = temp_str.substr(0, i);
                     }
                   }
+                  // Store the token in the preissue map
                   if(branchInstruction == false){
-                    preissue_instructions_tokened[3].push_back(temp_str);
+                    preissue_instructions_tokened[preissueSpot].push_back(temp_str);
+                    if(notSWinstruction == true){
+                      if(pos == 1){
+                        store_unique_destinations(destination_registers_inpipeline, alreadyExists, cycle, temp_str);
+                      }
+                      else{
+                        // If not in the first position and not a load instruction, start adding the sources
+                        if(notLWinstruction == true){
+                          if(temp_str.at(0) != '#'){
+                            cout << "temp_str: " << temp_str;
+                            store_unique_source(source_registers_inpipeline, alreadyExists, cycle, temp_str);
+                          }
+                        }
+                        // If the instruction is a load instruction
+                        else if(notLWinstruction == false){
+                          string strbild = "";
+                          int templen = temp_str.length();
+                          for(int b = 0; b < templen; b++){
+                            if(temp_str.at(b) == 'R'){
+                              strbild = strbild + 'R';
+                              for(int j = b+1; j < templen-1; j++){
+                                strbild += temp_str.at(j);
+                              }
+                            }
+                          }
+                          store_unique_source(source_registers_inpipeline, alreadyExists, cycle, strbild);
+                          cout << "GOT THE LW DESTINATION: " << strbild;
+                        }
+                      }
+                    }
+                    // If the instruction is a STORE WORD
+                    else if(notSWinstruction == false){
+                      if(pos == 1){
+                        store_unique_source(source_registers_inpipeline, alreadyExists, cycle, temp_str);
+                      }
+                      else{
+                        string strbild = "";
+                        int templen = temp_str.length();
+                        for(int b = 0; b < templen; b++){
+                          if(temp_str.at(b) == 'R'){
+                            strbild = strbild + 'R';
+                            for(int j = b+1; j < templen-1; j++){
+                              strbild = strbild + temp_str.at(j);
+                            }
+                          }
+                        }
+                        store_unique_destinations(destination_registers_inpipeline, alreadyExists, cycle, strbild);
+                        cout << "GOT THE SW DESTINATION: " << strbild;
+                      }
+                    }
+                    pos++;
                   }
                   else if(branchInstruction == true){
                     if(ready == false){
                       IFunit_instructions_tokened[0].push_back(temp_str);
-                      registers_waited_on[0].push_back(temp_str);
+                      store_branch_registerwait(registers_waited_on, alreadyExists, cycle, temp_str, destination_registers_inpipeline);
                     }
                     else if(ready == true){
                       IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1290,7 +1496,8 @@ int main(int args, char **argv){
                   for(map<int, vector<string>>::iterator it = destination_registers_inpipeline.begin(); it != destination_registers_inpipeline.end(); it++){
                     if(it->first <= cycle){
                       for(int k = 0; k < it->second.size(); k++){
-                        if(it->second.at(k) == preissue_instructions_tokened[i].at(3) || it->second.at(k) == preissue_instructions_tokened[i].at(4)){
+                        // The it->second.at(k) != preissue_instructions_tokened[i].at(2) is pretty janky. assumes instruction is not repeat???
+                        if(it->second.at(k) != preissue_instructions_tokened[i].at(2) && it->second.at(k) == preissue_instructions_tokened[i].at(3) || it->second.at(k) == preissue_instructions_tokened[i].at(4)){
                           noRaw = false;
                           cout << preissue_instructions_tokened[i].at(1) << " ----this shit got raw ---\n";
                         }
@@ -1381,10 +1588,10 @@ int main(int args, char **argv){
                   pre_alu1_instructions_tokened.insert(pair<int, vector<string>>(pre1size, vector<string>()));
                   pre_alu1_instructions_tokened[pre1size].push_back(to_string(cycle));
 
-                  destination_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
-                  destination_registers_inpipeline[cycle].push_back(preissue_instructions_tokened[i].at(2));
-                  source_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
-                  source_registers_inpipeline[cycle].push_back(source);
+                  // destination_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
+                  // destination_registers_inpipeline[cycle].push_back(preissue_instructions_tokened[i].at(2));
+                  // source_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
+                  // source_registers_inpipeline[cycle].push_back(source);
 
                   for(int j = 1; j < preissue_instructions_tokened[i].size(); j++){
                     pre_alu1_instructions_tokened[pre1size].push_back(preissue_instructions_tokened[i].at(j));
@@ -1425,21 +1632,21 @@ int main(int args, char **argv){
                 }
                 //------------------------------------------------ END OF ADD TO PRE_ALU1 --------------------------------------------//
 
-                if(memoryReady == true){
-                  cout << "\nMemory ready\n";
-                }
-                else if(memoryReady == false){
-                  cout << "MemorynotReady\n";
-                }
-                if(noRaw == true){
-                  cout <<"noooRawsHere\n";
-                }
-                else if(noRaw == false){
-                  cout << "\nHAZARDDDDDD|\n";
-                }
-                if(noWaw == true){
-                  cout << "sneky";
-                }
+                // if(memoryReady == true){
+                //   cout << "\nMemory ready\n";
+                // }
+                // else if(memoryReady == false){
+                //   cout << "MemorynotReady\n";
+                // }
+                // if(noRaw == true){
+                //   cout <<"noooRawsHere\n";
+                // }
+                // else if(noRaw == false){
+                //   cout << "\nHAZARDDDDDD|\n";
+                // }
+                // if(noWaw == true){
+                //   cout << "sneky";
+                // }
 
                 cout << "i" << i << "\n";
                 //-------------------------------------------------------- ADD TO PRE_ALU2 ---------------------------------------//
@@ -1458,14 +1665,14 @@ int main(int args, char **argv){
                   }
                   // This stores the registres of the instruction into the map of registers in pipeline (to check for hazards);
                   // Does not add immediate values to the map
-                  destination_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
-                  destination_registers_inpipeline[cycle].push_back(preissue_instructions_tokened[i].at(2));
-                  source_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
-                  for(int k = 3; k < preissue_instructions_tokened[i].size(); k++){
-                    if(preissue_instructions_tokened[i].at(k).at(0) == 'R'){
-                      source_registers_inpipeline[cycle].push_back(preissue_instructions_tokened[i].at(k));
-                    }
-                  }
+                  // destination_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
+                  // destination_registers_inpipeline[cycle].push_back(preissue_instructions_tokened[i].at(2));
+                  // source_registers_inpipeline.insert(pair<int, vector<string>>(cycle, vector<string>()));
+                  // for(int k = 3; k < preissue_instructions_tokened[i].size(); k++){
+                  //   if(preissue_instructions_tokened[i].at(k).at(0) == 'R'){
+                  //     source_registers_inpipeline[cycle].push_back(preissue_instructions_tokened[i].at(k));
+                  //   }
+                  // }
                   pre_alu2.insert(pair<int,string>(pre2size, preissue_instruction.at(i)));
 
                   int tti = preissueSize - 1; // tti means times to iterate.
@@ -1619,6 +1826,69 @@ int main(int args, char **argv){
                 for(int j = 1; j < post_mem_queue_tokened[i].size(); j++){
                   write_back_tokened[wb_size].push_back(post_mem_queue_tokened[i].at(j));
                 }
+
+                // When moving a post_alu instruction to the WB stage, free it from the registers in pipeline. Goes through the
+                // mapping of registers and their entry times, and removes corresponding registers.
+                for(map<int, vector<string>>::iterator deleter = destination_registers_inpipeline.begin(); deleter != destination_registers_inpipeline.end(); deleter++){
+                  if(deleter->first < cycle){
+                    for(int k = 0; k < deleter->second.size(); k++){
+                      if(deleter->second.at(k) == post_mem_queue_tokened[i].at(2)){
+                        if(k == 0 && deleter->second.size() == 1){
+                          cout << "1\n";
+                          destination_registers_inpipeline[deleter->first].pop_back();
+                        }
+                        else if(k != deleter->second.size()-1 && deleter->second.size() > 1){
+                          cout << "2\n";
+                          destination_registers_inpipeline[deleter->first].at(k) = destination_registers_inpipeline[deleter->first].at(k+1);
+                          destination_registers_inpipeline[deleter->first].pop_back();
+                        }
+                        else if(k == deleter->second.size() -1 && deleter->second.size() > 1){
+                          cout << "3\n";
+                          destination_registers_inpipeline[deleter->first].pop_back();
+                        }
+
+                      }
+                    }
+                  }
+                }
+
+                // Grabs the source register from the LW instruction
+                string strbild = "";
+                int templen = post_mem_queue_tokened[i].at(3).length();
+                for(int b = 0; b < templen; b++){
+                  if(post_mem_queue_tokened[i].at(3).at(b) == 'R'){
+                    strbild = strbild + 'R';
+                    for(int j = b+1; j < templen-1; j++){
+                      strbild += post_mem_queue_tokened[i].at(3).at(j);
+                    }
+                  }
+                }
+                cout << "source register bouta be freed: " << strbild << "\n";
+                // Removes sources out of pipeline after it goes to WB.
+                for(map<int, vector<string>>::iterator deleter = source_registers_inpipeline.begin(); deleter != source_registers_inpipeline.end(); deleter++){
+                  if(deleter->first < cycle){
+                    for(int k = 0; k < deleter->second.size(); k++){
+                      cout << "kk: " << k;
+                      if(deleter->second.at(k) == strbild){
+                        if(k == 0 && deleter->second.size() == 1){
+                          cout << "1\n";
+                          source_registers_inpipeline[deleter->first].pop_back();
+                        }
+                        else if(k != deleter->second.size()-1 && deleter->second.size() > 1){
+                          cout << "2\n";
+                          source_registers_inpipeline[deleter->first].at(k) = source_registers_inpipeline[deleter->first].at(k+1);
+                          source_registers_inpipeline[deleter->first].pop_back();
+                        }
+                        else if(k == deleter->second.size() -1 && deleter->second.size() > 1){
+                          cout << "3\n";
+                          source_registers_inpipeline[deleter->first].pop_back();
+                        }
+
+                      }
+                    }
+                  }
+                }
+
                 string temp = post_mem_queue[i]; // Create copy of post mem string to use for WB
                 if(i < post_mem_queue_tokened.size() - 1){
                   post_mem_queue[i] = post_mem_queue[i+1];
@@ -1652,7 +1922,6 @@ int main(int args, char **argv){
                 // Insert the instruction to be written back in the wbs_queue (should be parallel to the ALU WB);
                 int wbs_queued_size = wbs_queued.size();
                 wbs_queued.insert(pair<int, map<int,string>::iterator>(wbs_queued_size, go_back_to_execute));
-
               }
             }
 
@@ -1671,6 +1940,56 @@ int main(int args, char **argv){
                   cout << post_alu2_queue_tokened[i].at(j) << " ";
                   write_back_tokened[wb_size].push_back(post_alu2_queue_tokened[i].at(j));
                 }
+
+                // When moving a post_alu instruction to the WB stage, free it from the registers in pipeline. Goes through the
+                // mapping of registers and their entry times, and removes corresponding registers.
+                for(map<int, vector<string>>::iterator deleter = destination_registers_inpipeline.begin(); deleter != destination_registers_inpipeline.end(); deleter++){
+                  if(deleter->first < cycle){
+                    for(int k = 0; k < deleter->second.size(); k++){
+                      if(deleter->second.at(k) == post_alu2_queue_tokened[i].at(2)){
+                        if(k == 0 && deleter->second.size() == 1){
+                          cout << "1\n";
+                          destination_registers_inpipeline.erase(deleter->first);
+                        }
+                        else if(k != deleter->second.size()-1 && deleter->second.size() > 1){
+                          cout << "2\n";
+                          destination_registers_inpipeline[deleter->first].at(k) = destination_registers_inpipeline[deleter->first].at(k+1);
+                          destination_registers_inpipeline[deleter->first].pop_back();
+                        }
+                        else if(k == deleter->second.size() -1 && deleter->second.size() > 1){
+                          cout << "3\n";
+                          destination_registers_inpipeline[deleter->first].pop_back();
+                        }
+
+                      }
+                    }
+                  }
+                }
+
+                // Removes sources out of pipeline after it goes to WB.
+                for(map<int, vector<string>>::iterator deleter = source_registers_inpipeline.begin(); deleter != source_registers_inpipeline.end(); deleter++){
+                  if(deleter->first < cycle){
+                    for(int k = 0; k < deleter->second.size(); k++){
+                      if(deleter->second.at(k) == post_alu2_queue_tokened[i].at(3) || deleter->second.at(k) == post_alu2_queue_tokened[i].at(4)){
+                        if(k == 0 && deleter->second.size() == 1){
+                          cout << "1\n";
+                          source_registers_inpipeline.erase(deleter->first);
+                        }
+                        else if(k != deleter->second.size()-1 && deleter->second.size() > 1){
+                          cout << "2\n";
+                          source_registers_inpipeline[deleter->first].at(k) = source_registers_inpipeline[deleter->first].at(k+1);
+                          source_registers_inpipeline[deleter->first].pop_back();
+                        }
+                        else if(k == deleter->second.size() -1 && deleter->second.size() > 1){
+                          cout << "3\n";
+                          source_registers_inpipeline[deleter->first].pop_back();
+                        }
+
+                      }
+                    }
+                  }
+                }
+
                 string temp = post_alu2_queue[i];
                 cout << "post2sizeinwb: " << post_alu2_queue_tokened.size() << " i: " << i << "\n";
                 if(i < post_alu2_queue_tokened.size() - 1){
@@ -1704,12 +2023,12 @@ int main(int args, char **argv){
                 }
                 int wbs_queued_size = wbs_queued.size();
                 wbs_queued.insert(pair<int, map<int,string>::iterator>(wbs_queued_size, go_back_to_execute));
-
+                // destination_registers_inpipeline.clear();
+                // source_registers_inpipeline.clear();
 
               }
             }
             //-----------------------------------------------------------------------------------------------------------------------//
-
 
             print_pipelinedebugging_states(registers_waited_on,
               destination_registers_inpipeline,
@@ -1757,7 +2076,6 @@ int main(int args, char **argv){
             doneExecuting = true;
           }
         } // End of the not writeback loop?
-        cout << "TIME TO START BRANCH " << "\n";
 
       }   // End of if(iteration == 2) will go do stuff below, unless specified otherwise
         cout << "yeeh awww";
@@ -1766,10 +2084,23 @@ int main(int args, char **argv){
 
       //-------------- Related to the write-back portion of the pipeline --------------------//
 
+      if(branch_stalled == true){
+        cout << "truu)))\n";
+      }
+      else if(branch_stalled == false){
+        cout << "falseee\n";
+      }
+      if(branch_stalled == true){
+        for(map<int, vector<string>>::iterator destItr = destination_registers_inpipeline.begin(); destItr != destination_registers_inpipeline.end(); destItr++){
+
+        }
+      }
       // If the pipeline is stalled waiting bc of branch or something, after an instruction reaches
       // the writeback stage, if it's destination register is in the sources for the branch instr, unstall it and move the instruction to the execute.
-      if(branch_stalled == true){
+      if(branch_stalled == true && no_registers_towaiton == true){
+        cout << "looky im here";
         for(int i = 0; i < registers_waited_on[0].size(); i++){
+          cout << "cuntz";
           // If in the registers being waited on list, the write back destination matches, remove it from the waiting list
           if(registers_waited_on[0].at(i) == write_back_tokened[0].at(2)){
             // If the size is greater than 1, swap the that element with the last element and then pop it off.
@@ -1802,8 +2133,6 @@ int main(int args, char **argv){
 
       // Flushing pipeline errors so they can be re-checked after write-back finish.
       if(branchInstruction == false){
-        destination_registers_inpipeline.clear();
-        source_registers_inpipeline.clear();
         memory_registers_waited.clear(); // Clear the LW/SW memory registers waited on
       }
       noHazards = true;
@@ -1821,867 +2150,1724 @@ int main(int args, char **argv){
       // and for iteration == 2, if the write backs queued (wbs_queued) is more than 1, it will do multiple
       // wbs (1 LW WB and 1 ALU WB at MOST)
       map<int, string>::iterator jumper;
-      do{
-        if(wbs_queued.size() > 0){
-          it = wbs_queued[wbs_queued.size()-1];
-          wbs_queued.erase(wbs_queued.size()-1);
-          cout << "WBS WAITINGGGG: \n";
+      if(iteration == 1){
+          // Makes a substring out of the line to find out if the instruction is in category 1 or category 2
+          // Start at position 0 - 2 length
+          categorybits = it->second.substr(0,2);
+          // Start at position 2 - 4 length
+          opcode = it->second.substr(2,4);
+          //cout << it->first << "\n";
+          instruction = "";
+          int rsReg = 0;
+          int rtReg = 0;
+          int rdReg = 0;
+          int immediate = 0;
+          int sa = 0; // shift amount
+          int shftedRegAmt = 0; // how much to shift register by
+          int offset = 0;
+          int base = 0; // for LW? SW
+          int x = 0;
+          int y = 0;
+          int z = 0;
+          // For the bitwise arithmetic, string of bits of register values used to store back the value
+          string xbits = "";
+          string ybits = "";
+          string zbits = "";
+          // For jumps and branches. change iterator to jumper at end of iteration.
+
+          //cout << "\n" << it->first << "\t" << it->second << " ::";
+          if(categorybits == "01"){
+            // J Instruction. Shifted right 2 on the instruction bits so shifted left twice to account for that.
+            if(opcode == "0000"){
+              int jumpaddr = 0;
+              //cout << "Jumping to memory: ";
+              for(int i = it->second.length() - 1; i > 5; i--){
+                if(it->second.at(i) == '1')
+                  jumpaddr = jumpaddr + pow(2, it->second.length() - i - 1);
+              }
+              jumpaddr = jumpaddr << 2;
+              //cout << jumpaddr << "\t";
+              // Make string and append the jump address to it so i can store it for outputting
+              instruction = "J #";
+              instruction += to_string(jumpaddr);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //  cout << "jumpaddr:" << jumpaddr;
+                // finds the iterator that has the jump addr as the key.
+                jumper = mem_instruction.find(jumpaddr-4);
+                //cout << "it: " << it->first << "\t" << it->second << "\n";
+
+              }
+            }
+            // JR Instruction
+            if(opcode == "0001"){
+
+              for(int i = it->second.length() - 22; i >= 6; i--){
+                if(it->second.at(i) == '1')
+                  rsReg = rsReg + pow(2, it->second.length() - 22 - i);
+              }
+              instruction = "JR R";
+              instruction += to_string(rsReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rsReg){
+                    // Finds the register value stored at the register and stores it to x
+                    x = stoi(register_values.find(rsReg)->second);
+                    // make the iterator start where x's value (memory?) is
+                    jumper = mem_instruction.find(x-4);
+                  }
+                }
+              }
+
+            }
+            // BEQ Instruction
+            if(opcode == "0010"){
+              int offset = 0;
+              // Offset bits are from 31-16
+              for(int i = it->second.length()-1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2,it->second.length() - i - 1);
+                }
+              }
+              offset = offset << 2;
+              // RT Register are from bits 15-11
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+              // RS Register are from bits 10-6
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              // Combine everything into string for adding to instruction simulation
+              instruction = "BEQ R" + to_string(rsReg) + ", R" + to_string(rtReg) + ", #" + to_string(offset);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //cout << "reg1. :" << register_values.find(rsReg) -> second << "\n";
+                //cout << "reg2. :" << register_values.find(rtReg) -> second << "\n";
+                //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
+                if(register_values.find(rsReg)->second == register_values.find(rtReg)->second){
+                  //cout << "MEMORY ADDRESS:" << (it->first + offset + 4) << "\n";
+                  jumper = mem_instruction.find(it->first + offset);
+                  cout << "TAKEN";
+                }
+                else{
+                  cout << "NOT TAKEN";
+                  jumper = it;
+                }
+              }
+            }
+            // BLTZ Instruction
+            if(opcode == "0011"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - 1 - i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              // offset is shifted left 2 bits
+              offset = offset << 2;
+              instruction = "BLTZ R" + to_string(rsReg) + ", #" + to_string(offset);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
+                if(stoi(register_values.find(rsReg)->second) < 0){
+                  jumper = mem_instruction.find((it->first + offset));
+                }
+                else{
+                  jumper = it;
+                }
+              }
+            }
+            // BGTZ Instruction
+            if(opcode == "0100"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - 1 - i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              // offset is shifted left 2 bits
+              offset = offset << 2;
+              instruction = "BGTZ R" + to_string(rsReg) + ", #" + to_string(offset);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
+                if(stoi(register_values.find(rsReg)->second) > 0){
+                  jumper = mem_instruction.find((it->first + offset));
+                }
+                else{
+                  jumper = it;
+                }
+              }
+            }
+            // BREAK Instruction **functionality other than denoting data is next??
+            if(opcode == "0101"){
+              instruction = "BREAK";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                cycle++;
+              }
+            }
+            // SW Instruction
+            if(opcode == "0110"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  base = base + pow(2, 10 - i);
+                }
+              }
+              // For the actual word to load, take the offset 340 to base R0 and every increment of 4 is the next data register.
+              instruction = "SW R" + to_string(rtReg) + ", " + to_string(offset) + "(R" + to_string(base) + ")";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                int addr = (offset + stoi(register_values.find(base)->second));
+                for(map<int,int>::iterator dataItr = mem_value.begin(); dataItr != mem_value.end(); dataItr++){
+                  if(addr == dataItr->first){
+                    //cout << "addr:" << addr;
+                    //cout << "value: " << register_values.find(rtReg)->second;
+                    mem_value.at(addr) = stoi(register_values.find(rtReg)->second);
+                  }
+                }
+              }
+            }
+            // LW Instruction
+            if(opcode == "0111"){
+
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  base = base + pow(2, 10 - i);
+                }
+              }
+              // For the actual word to load, take the offset 340 to base R0 and every increment of 4 is the next data register.
+              instruction = "LW R" + to_string(rtReg) + ", " + to_string(offset) + "(R" + to_string(base) + ")";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                int addr = (offset + stoi(register_values.find(base)->second));
+                int memoryval = mem_value.find(addr)->second;
+                //cout << "addr:" << addr << " |memval:" << memoryval;
+                register_values.erase(rtReg);
+                register_values.insert(pair<int,string>(rtReg, to_string(memoryval)));
+              }
+            }
+            // SLL Instruction  //31-26
+            if(opcode == "1000"){
+              for(int i = it->second.length() - 7; i >= 21; i--){
+                if(it->second.at(i) == '1')
+                  sa = sa + pow(2, 25 - i);
+              }
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1')
+                  rdReg = rdReg + pow(2, 20 - i);
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1')
+                  rtReg = rtReg + pow(2, 15 - i);
+              }
+              // Keep the new value of rdReg in another variable
+              shftedRegAmt = stoi(register_values.find(rtReg)->second);
+              // For each shift amount, shift left bits 1.
+              for(int i = sa; i > 0; i--){
+                shftedRegAmt = shftedRegAmt << 1;
+              }
+              instruction = "SLL R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                register_values.erase(rdReg);
+                register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
+                // cout << "rdreg:" << rdReg << "|amt: " << to_string(shftedRegAmt);
+              }
+            }
+            // SRL Instruction
+            if(opcode == "1001"){
+              for(int i = it->second.length() - 7; i >= 21; i--){
+                if(it->second.at(i) == '1')
+                  sa = sa + pow(2, 25 - i);
+              }
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1')
+                  rdReg = rdReg + pow(2, 20 - i);
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1')
+                  rtReg = rtReg + pow(2, 15 - i);
+              }
+              // Keep the new value of rdReg in another variable
+              shftedRegAmt = stoi(register_values.find(rtReg)->second);
+              // For each shift amount, shift left bits 1.
+              for(int i = sa; i > 0; i--){
+                shftedRegAmt = shftedRegAmt >> 1;
+              }
+              instruction = "SRL R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                register_values.erase(rdReg);
+                register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
+              }
+            }
+            // SRA Instruction
+            if(opcode == "1010"){
+
+              for(int i = it->second.length() - 7; i >= 21; i--){
+                if(it->second.at(i) == '1')
+                  sa = sa + pow(2, 25 - i);
+              }
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1')
+                  rdReg = rdReg + pow(2, 20 - i);
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1')
+                  rtReg = rtReg + pow(2, 15 - i);
+              }
+              // Keep the new value of rdReg in another variable
+              shftedRegAmt = stoi(register_values.find(rtReg)->second);
+              // For each shift amount, shift left bits 1.
+              for(int i = sa; i > 0; i--){
+                shftedRegAmt = shftedRegAmt >> 1;
+              }
+              // turn shiftedregamt integer into 32 bit string and then manipulate
+              // currently working as SRL? (need to implement sign bit thing)?
+              // tested with negative numbers and positive and seem to work same??
+              //string signbit = "";
+              //string arithString = "";
+              instruction = "SRA R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                register_values.erase(rdReg);
+                register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
+              }
+             }
+            // NOP Instruction
+            if(opcode == "1011"){
+              instruction = "NOP";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // do nothing?
+                // cycle++;
+              }
+            }
+          }
+          else if(categorybits == "11"){
+            // Use struct and create function to reduce redundancy if there is extra time
+
+            // ADD Instruction
+            if(opcode == "0000"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              instruction = "ADD R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rdReg){
+                    x = stoi(register_values.at(rsReg));
+                    y = stoi(register_values.at(rtReg));
+                    // result of the two registers
+                    z = x + y;
+
+                    register_values.at(rdReg) = to_string(z);
+                  }
+                }
+              }
+            }
+            // SUB Instruction
+            if(opcode == "0001"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "SUB R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rdReg){
+                    x = stoi(register_values.at(rsReg));
+                    y = stoi(register_values.at(rtReg));
+                    // result of the two registers
+                    z = x - y;
+
+                    register_values.at(rdReg) = to_string(z);
+                  }
+                }
+              }
+            }
+            // MUL Instruction
+            if(opcode == "0010"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "MUL R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rdReg){
+                    x = stoi(register_values.at(rsReg));
+                    y = stoi(register_values.at(rtReg));
+                    // cout << "x:" << x << "  | y:" << y;
+                    // result of the two registers
+                    z = x * y;
+
+                    register_values.at(rdReg) = to_string(z);
+                  }
+                }
+              }
+            }
+            // AND Instruction
+            if(opcode == "0011"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "AND R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = and_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rdReg) = to_string(z);
+                //cout << z;
+                //cout << "x, xbits:" << x << "," << xbits << "|" << xbits.length();
+                //cout << "\ny, ybits:" << y << "," << ybits << "|" << ybits.length();
+                //cout << "\nzbits: " << zbits;
+              }
+            }
+            // OR Instruction
+            if(opcode == "0100"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "OR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = or_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // XOR Instruction
+            if(opcode == "0101"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "XOR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = xor_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // NOR Instruction
+            if(opcode == "0110"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "NOR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = nor_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // SLT Instruction
+            if(opcode == "0111"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "SLT R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                // if rs < rt, set rd equal to 1. if not, set rd equal to 0
+                if(x < y)
+                  z = 1;
+                else
+                  z = 0;
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // ADDI Instruction
+            if(opcode == "1000"){
+              // Calculate the immediate value (16 bits)
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              // Calculate the rt register (5 bits)
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              // Calculate the rs register (5 bits)
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "ADDI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                x = stoi(register_values.find(rsReg)->second);
+                z = x + immediate;
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+            // ANDI Instruction
+            if(opcode == "1001"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "ANDI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                xbits = createRegisterBitsString(x);
+                if(immediate >= 0 ){
+                  immediateString = "0000000000000000" + immediateString;
+                  ybits = immediateString;
+                }
+                else if(immediate < 0){
+                  immediateString = "1111111111111111" + immediateString;
+                  ybits = immediateString;
+                }
+                zbits = and_function(xbits, immediateString);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+            // ORI Instruction
+            if(opcode == "1010"){
+
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "ORI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                xbits = createRegisterBitsString(x);
+                if(immediate >= 0 ){
+                  immediateString = "0000000000000000" + immediateString;
+                  ybits = immediateString;
+                }
+                else if(immediate < 0){
+                  immediateString = "1111111111111111" + immediateString;
+                  ybits = immediateString;
+                }
+                zbits = or_function(xbits, immediateString);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+            // XORI Instruction
+            if(opcode == "1011"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "XORI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                xbits = createRegisterBitsString(x);
+                if(immediate >= 0 ){
+                  immediateString = "0000000000000000" + immediateString;
+                  ybits = immediateString;
+                }
+                else if(immediate < 0){
+                  immediateString = "1111111111111111" + immediateString;
+                  ybits = immediateString;
+                }
+                zbits = xor_function(xbits, immediateString);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+          }
+          //write_back_tokened.erase(0);
+      }
+      else if(iteration == 2){
+        while(wbs_queued.size() > 0){
+          if(wbs_queued.size() > 0){
+            it = wbs_queued[wbs_queued.size()-1];
+            wbs_queued.erase(wbs_queued.size()-1);
+            cout << "WBS WAITINGGGG: \n";
+          }
+          // Makes a substring out of the line to find out if the instruction is in category 1 or category 2
+          // Start at position 0 - 2 length
+          categorybits = it->second.substr(0,2);
+          // Start at position 2 - 4 length
+          opcode = it->second.substr(2,4);
+          //cout << it->first << "\n";
+          instruction = "";
+          int rsReg = 0;
+          int rtReg = 0;
+          int rdReg = 0;
+          int immediate = 0;
+          int sa = 0; // shift amount
+          int shftedRegAmt = 0; // how much to shift register by
+          int offset = 0;
+          int base = 0; // for LW? SW
+          int x = 0;
+          int y = 0;
+          int z = 0;
+          // For the bitwise arithmetic, string of bits of register values used to store back the value
+          string xbits = "";
+          string ybits = "";
+          string zbits = "";
+          // For jumps and branches. change iterator to jumper at end of iteration.
+
+          //cout << "\n" << it->first << "\t" << it->second << " ::";
+          if(categorybits == "01"){
+            // J Instruction. Shifted right 2 on the instruction bits so shifted left twice to account for that.
+            if(opcode == "0000"){
+              int jumpaddr = 0;
+              //cout << "Jumping to memory: ";
+              for(int i = it->second.length() - 1; i > 5; i--){
+                if(it->second.at(i) == '1')
+                  jumpaddr = jumpaddr + pow(2, it->second.length() - i - 1);
+              }
+              jumpaddr = jumpaddr << 2;
+              //cout << jumpaddr << "\t";
+              // Make string and append the jump address to it so i can store it for outputting
+              instruction = "J #";
+              instruction += to_string(jumpaddr);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //  cout << "jumpaddr:" << jumpaddr;
+                // finds the iterator that has the jump addr as the key.
+                jumper = mem_instruction.find(jumpaddr-4);
+                //cout << "it: " << it->first << "\t" << it->second << "\n";
+
+              }
+            }
+            // JR Instruction
+            if(opcode == "0001"){
+
+              for(int i = it->second.length() - 22; i >= 6; i--){
+                if(it->second.at(i) == '1')
+                  rsReg = rsReg + pow(2, it->second.length() - 22 - i);
+              }
+              instruction = "JR R";
+              instruction += to_string(rsReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rsReg){
+                    // Finds the register value stored at the register and stores it to x
+                    x = stoi(register_values.find(rsReg)->second);
+                    // make the iterator start where x's value (memory?) is
+                    jumper = mem_instruction.find(x-4);
+                  }
+                }
+              }
+
+            }
+            // BEQ Instruction
+            if(opcode == "0010"){
+              int offset = 0;
+              // Offset bits are from 31-16
+              for(int i = it->second.length()-1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2,it->second.length() - i - 1);
+                }
+              }
+              offset = offset << 2;
+              // RT Register are from bits 15-11
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+              // RS Register are from bits 10-6
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              // Combine everything into string for adding to instruction simulation
+              instruction = "BEQ R" + to_string(rsReg) + ", R" + to_string(rtReg) + ", #" + to_string(offset);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //cout << "reg1. :" << register_values.find(rsReg) -> second << "\n";
+                //cout << "reg2. :" << register_values.find(rtReg) -> second << "\n";
+                //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
+                if(register_values.find(rsReg)->second == register_values.find(rtReg)->second){
+                  //cout << "MEMORY ADDRESS:" << (it->first + offset + 4) << "\n";
+                  jumper = mem_instruction.find(it->first + offset);
+                  cout << "TAKEN";
+                }
+                else{
+                  cout << "NOT TAKEN";
+                  jumper = it;
+                }
+              }
+            }
+            // BLTZ Instruction
+            if(opcode == "0011"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - 1 - i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              // offset is shifted left 2 bits
+              offset = offset << 2;
+              instruction = "BLTZ R" + to_string(rsReg) + ", #" + to_string(offset);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
+                if(stoi(register_values.find(rsReg)->second) < 0){
+                  jumper = mem_instruction.find((it->first + offset));
+                }
+                else{
+                  jumper = it;
+                }
+              }
+            }
+            // BGTZ Instruction
+            if(opcode == "0100"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - 1 - i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              // offset is shifted left 2 bits
+              offset = offset << 2;
+              instruction = "BGTZ R" + to_string(rsReg) + ", #" + to_string(offset);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
+                if(stoi(register_values.find(rsReg)->second) > 0){
+                  jumper = mem_instruction.find((it->first + offset));
+                }
+                else{
+                  jumper = it;
+                }
+              }
+            }
+            // BREAK Instruction **functionality other than denoting data is next??
+            if(opcode == "0101"){
+              instruction = "BREAK";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                cycle++;
+              }
+            }
+            // SW Instruction
+            if(opcode == "0110"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  base = base + pow(2, 10 - i);
+                }
+              }
+              // For the actual word to load, take the offset 340 to base R0 and every increment of 4 is the next data register.
+              instruction = "SW R" + to_string(rtReg) + ", " + to_string(offset) + "(R" + to_string(base) + ")";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                int addr = (offset + stoi(register_values.find(base)->second));
+                for(map<int,int>::iterator dataItr = mem_value.begin(); dataItr != mem_value.end(); dataItr++){
+                  if(addr == dataItr->first){
+                    //cout << "addr:" << addr;
+                    //cout << "value: " << register_values.find(rtReg)->second;
+                    mem_value.at(addr) = stoi(register_values.find(rtReg)->second);
+                  }
+                }
+              }
+            }
+            // LW Instruction
+            if(opcode == "0111"){
+
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  offset = offset + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  base = base + pow(2, 10 - i);
+                }
+              }
+              // For the actual word to load, take the offset 340 to base R0 and every increment of 4 is the next data register.
+              instruction = "LW R" + to_string(rtReg) + ", " + to_string(offset) + "(R" + to_string(base) + ")";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                int addr = (offset + stoi(register_values.find(base)->second));
+                int memoryval = mem_value.find(addr)->second;
+                //cout << "addr:" << addr << " |memval:" << memoryval;
+                register_values.erase(rtReg);
+                register_values.insert(pair<int,string>(rtReg, to_string(memoryval)));
+              }
+            }
+            // SLL Instruction  //31-26
+            if(opcode == "1000"){
+              for(int i = it->second.length() - 7; i >= 21; i--){
+                if(it->second.at(i) == '1')
+                  sa = sa + pow(2, 25 - i);
+              }
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1')
+                  rdReg = rdReg + pow(2, 20 - i);
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1')
+                  rtReg = rtReg + pow(2, 15 - i);
+              }
+              // Keep the new value of rdReg in another variable
+              shftedRegAmt = stoi(register_values.find(rtReg)->second);
+              // For each shift amount, shift left bits 1.
+              for(int i = sa; i > 0; i--){
+                shftedRegAmt = shftedRegAmt << 1;
+              }
+              instruction = "SLL R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                register_values.erase(rdReg);
+                register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
+                // cout << "rdreg:" << rdReg << "|amt: " << to_string(shftedRegAmt);
+              }
+            }
+            // SRL Instruction
+            if(opcode == "1001"){
+              for(int i = it->second.length() - 7; i >= 21; i--){
+                if(it->second.at(i) == '1')
+                  sa = sa + pow(2, 25 - i);
+              }
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1')
+                  rdReg = rdReg + pow(2, 20 - i);
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1')
+                  rtReg = rtReg + pow(2, 15 - i);
+              }
+              // Keep the new value of rdReg in another variable
+              shftedRegAmt = stoi(register_values.find(rtReg)->second);
+              // For each shift amount, shift left bits 1.
+              for(int i = sa; i > 0; i--){
+                shftedRegAmt = shftedRegAmt >> 1;
+              }
+              instruction = "SRL R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                register_values.erase(rdReg);
+                register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
+              }
+            }
+            // SRA Instruction
+            if(opcode == "1010"){
+
+              for(int i = it->second.length() - 7; i >= 21; i--){
+                if(it->second.at(i) == '1')
+                  sa = sa + pow(2, 25 - i);
+              }
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1')
+                  rdReg = rdReg + pow(2, 20 - i);
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1')
+                  rtReg = rtReg + pow(2, 15 - i);
+              }
+              // Keep the new value of rdReg in another variable
+              shftedRegAmt = stoi(register_values.find(rtReg)->second);
+              // For each shift amount, shift left bits 1.
+              for(int i = sa; i > 0; i--){
+                shftedRegAmt = shftedRegAmt >> 1;
+              }
+              // turn shiftedregamt integer into 32 bit string and then manipulate
+              // currently working as SRL? (need to implement sign bit thing)?
+              // tested with negative numbers and positive and seem to work same??
+              //string signbit = "";
+              //string arithString = "";
+              instruction = "SRA R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                register_values.erase(rdReg);
+                register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
+              }
+             }
+            // NOP Instruction
+            if(opcode == "1011"){
+              instruction = "NOP";
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // do nothing?
+                // cycle++;
+              }
+            }
+          }
+          else if(categorybits == "11"){
+            // Use struct and create function to reduce redundancy if there is extra time
+
+            // ADD Instruction
+            if(opcode == "0000"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              instruction = "ADD R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rdReg){
+                    x = stoi(register_values.at(rsReg));
+                    y = stoi(register_values.at(rtReg));
+                    // result of the two registers
+                    z = x + y;
+
+                    register_values.at(rdReg) = to_string(z);
+                  }
+                }
+              }
+            }
+            // SUB Instruction
+            if(opcode == "0001"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "SUB R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rdReg){
+                    x = stoi(register_values.at(rsReg));
+                    y = stoi(register_values.at(rtReg));
+                    // result of the two registers
+                    z = x - y;
+
+                    register_values.at(rdReg) = to_string(z);
+                  }
+                }
+              }
+            }
+            // MUL Instruction
+            if(opcode == "0010"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "MUL R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
+                  if(regItr->first == rdReg){
+                    x = stoi(register_values.at(rsReg));
+                    y = stoi(register_values.at(rtReg));
+                    // cout << "x:" << x << "  | y:" << y;
+                    // result of the two registers
+                    z = x * y;
+
+                    register_values.at(rdReg) = to_string(z);
+                  }
+                }
+              }
+            }
+            // AND Instruction
+            if(opcode == "0011"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "AND R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = and_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rdReg) = to_string(z);
+                //cout << z;
+                //cout << "x, xbits:" << x << "," << xbits << "|" << xbits.length();
+                //cout << "\ny, ybits:" << y << "," << ybits << "|" << ybits.length();
+                //cout << "\nzbits: " << zbits;
+              }
+            }
+            // OR Instruction
+            if(opcode == "0100"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "OR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = or_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // XOR Instruction
+            if(opcode == "0101"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "XOR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = xor_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // NOR Instruction
+            if(opcode == "0110"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "NOR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                xbits = createRegisterBitsString(x);
+                ybits = createRegisterBitsString(y);
+                zbits = nor_function(xbits, ybits);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // SLT Instruction
+            if(opcode == "0111"){
+              for(int i = 20; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  rdReg = rdReg + pow(2, 20 - i);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+
+              instruction = "SLT R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                y = stoi(register_values.find(rtReg)->second);
+                // if rs < rt, set rd equal to 1. if not, set rd equal to 0
+                if(x < y)
+                  z = 1;
+                else
+                  z = 0;
+                register_values.at(rdReg) = to_string(z);
+              }
+            }
+            // ADDI Instruction
+            if(opcode == "1000"){
+              // Calculate the immediate value (16 bits)
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              // Calculate the rt register (5 bits)
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15 - i);
+                }
+              }
+
+              // Calculate the rs register (5 bits)
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "ADDI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                // Remove current register value and replace with the new one
+                x = stoi(register_values.find(rsReg)->second);
+                z = x + immediate;
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+            // ANDI Instruction
+            if(opcode == "1001"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "ANDI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                xbits = createRegisterBitsString(x);
+                if(immediate >= 0 ){
+                  immediateString = "0000000000000000" + immediateString;
+                  ybits = immediateString;
+                }
+                else if(immediate < 0){
+                  immediateString = "1111111111111111" + immediateString;
+                  ybits = immediateString;
+                }
+                zbits = and_function(xbits, immediateString);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+            // ORI Instruction
+            if(opcode == "1010"){
+
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "ORI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                xbits = createRegisterBitsString(x);
+                if(immediate >= 0 ){
+                  immediateString = "0000000000000000" + immediateString;
+                  ybits = immediateString;
+                }
+                else if(immediate < 0){
+                  immediateString = "1111111111111111" + immediateString;
+                  ybits = immediateString;
+                }
+                zbits = or_function(xbits, immediateString);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+            // XORI Instruction
+            if(opcode == "1011"){
+              for(int i = it->second.length() - 1; i >= 16; i--){
+                if(it->second.at(i) == '1'){
+                  immediate = immediate + pow(2, it->second.length() - i - 1);
+                }
+              }
+              for(int i = 15; i >= 11; i--){
+                if(it->second.at(i) == '1'){
+                  rtReg = rtReg + pow(2, 15-i);
+                }
+              }
+              for(int i = 10; i >= 6; i--){
+                if(it->second.at(i) == '1'){
+                  rsReg = rsReg + pow(2, 10 - i);
+                }
+              }
+              string immediateString = createImmediateBitsString(immediate);
+              //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
+              immediate = int_ofbits(immediateString);
+              instruction = "XORI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
+              if(iteration == 1){
+                addto_instruction_disassembly(instruction_disassembly, it, instruction);
+                instructions_list[instructionsCount] = instruction;
+                instructionsCount++;
+              }
+              else if(iteration == 2){
+                x = stoi(register_values.find(rsReg)->second);
+                xbits = createRegisterBitsString(x);
+                if(immediate >= 0 ){
+                  immediateString = "0000000000000000" + immediateString;
+                  ybits = immediateString;
+                }
+                else if(immediate < 0){
+                  immediateString = "1111111111111111" + immediateString;
+                  ybits = immediateString;
+                }
+                zbits = xor_function(xbits, immediateString);
+                //print_bits(instruction, xbits, ybits, zbits);
+                z = int_ofbits(zbits);
+                //cout << "resultInt:" << z << "\n\n";
+                register_values.at(rtReg) = to_string(z);
+              }
+            }
+          }
+
+          //write_back_tokened.erase(0);
         }
-        // Makes a substring out of the line to find out if the instruction is in category 1 or category 2
-        // Start at position 0 - 2 length
-        categorybits = it->second.substr(0,2);
-        // Start at position 2 - 4 length
-        opcode = it->second.substr(2,4);
-        //cout << it->first << "\n";
-        instruction = "";
-        int rsReg = 0;
-        int rtReg = 0;
-        int rdReg = 0;
-        int immediate = 0;
-        int sa = 0; // shift amount
-        int shftedRegAmt = 0; // how much to shift register by
-        int offset = 0;
-        int base = 0; // for LW? SW
-        int x = 0;
-        int y = 0;
-        int z = 0;
-        // For the bitwise arithmetic, string of bits of register values used to store back the value
-        string xbits = "";
-        string ybits = "";
-        string zbits = "";
-        // For jumps and branches. change iterator to jumper at end of iteration.
-
-        //cout << "\n" << it->first << "\t" << it->second << " ::";
-        if(categorybits == "01"){
-          // J Instruction. Shifted right 2 on the instruction bits so shifted left twice to account for that.
-          if(opcode == "0000"){
-            int jumpaddr = 0;
-            //cout << "Jumping to memory: ";
-            for(int i = it->second.length() - 1; i > 5; i--){
-              if(it->second.at(i) == '1')
-                jumpaddr = jumpaddr + pow(2, it->second.length() - i - 1);
-            }
-            jumpaddr = jumpaddr << 2;
-            //cout << jumpaddr << "\t";
-            // Make string and append the jump address to it so i can store it for outputting
-            instruction = "J #";
-            instruction += to_string(jumpaddr);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              //  cout << "jumpaddr:" << jumpaddr;
-              // finds the iterator that has the jump addr as the key.
-              jumper = mem_instruction.find(jumpaddr-4);
-              //cout << "it: " << it->first << "\t" << it->second << "\n";
-
-            }
-          }
-          // JR Instruction
-          if(opcode == "0001"){
-
-            for(int i = it->second.length() - 22; i >= 6; i--){
-              if(it->second.at(i) == '1')
-                rsReg = rsReg + pow(2, it->second.length() - 22 - i);
-            }
-            instruction = "JR R";
-            instruction += to_string(rsReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
-                if(regItr->first == rsReg){
-                  // Finds the register value stored at the register and stores it to x
-                  x = stoi(register_values.find(rsReg)->second);
-                  // make the iterator start where x's value (memory?) is
-                  jumper = mem_instruction.find(x-4);
-                }
-              }
-            }
-
-          }
-          // BEQ Instruction
-          if(opcode == "0010"){
-            int offset = 0;
-            // Offset bits are from 31-16
-            for(int i = it->second.length()-1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                offset = offset + pow(2,it->second.length() - i - 1);
-              }
-            }
-            offset = offset << 2;
-            // RT Register are from bits 15-11
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-            // RS Register are from bits 10-6
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            // Combine everything into string for adding to instruction simulation
-            instruction = "BEQ R" + to_string(rsReg) + ", R" + to_string(rtReg) + ", #" + to_string(offset);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              //cout << "reg1. :" << register_values.find(rsReg) -> second << "\n";
-              //cout << "reg2. :" << register_values.find(rtReg) -> second << "\n";
-              //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
-              if(register_values.find(rsReg)->second == register_values.find(rtReg)->second){
-                //cout << "MEMORY ADDRESS:" << (it->first + offset + 4) << "\n";
-                jumper = mem_instruction.find(it->first + offset);
-                cout << "TAKEN";
-              }
-              else{
-                cout << "NOT TAKEN";
-                jumper = it;
-              }
-            }
-          }
-          // BLTZ Instruction
-          if(opcode == "0011"){
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                offset = offset + pow(2, it->second.length() - 1 - i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-            // offset is shifted left 2 bits
-            offset = offset << 2;
-            instruction = "BLTZ R" + to_string(rsReg) + ", #" + to_string(offset);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
-              if(stoi(register_values.find(rsReg)->second) < 0){
-                jumper = mem_instruction.find((it->first + offset));
-              }
-              else{
-                jumper = it;
-              }
-            }
-          }
-          // BGTZ Instruction
-          if(opcode == "0100"){
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                offset = offset + pow(2, it->second.length() - 1 - i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-            // offset is shifted left 2 bits
-            offset = offset << 2;
-            instruction = "BGTZ R" + to_string(rsReg) + ", #" + to_string(offset);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              //cout << "rs:" << rsReg << ", " << stoi(register_values.find(rsReg)->second) << "\n";
-              if(stoi(register_values.find(rsReg)->second) > 0){
-                jumper = mem_instruction.find((it->first + offset));
-              }
-              else{
-                jumper = it;
-              }
-            }
-          }
-          // BREAK Instruction **functionality other than denoting data is next??
-          if(opcode == "0101"){
-            instruction = "BREAK";
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              cycle++;
-            }
-          }
-          // SW Instruction
-          if(opcode == "0110"){
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                offset = offset + pow(2, it->second.length() - i - 1);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15-i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                base = base + pow(2, 10 - i);
-              }
-            }
-            // For the actual word to load, take the offset 340 to base R0 and every increment of 4 is the next data register.
-            instruction = "SW R" + to_string(rtReg) + ", " + to_string(offset) + "(R" + to_string(base) + ")";
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              int addr = (offset + stoi(register_values.find(base)->second));
-              for(map<int,int>::iterator dataItr = mem_value.begin(); dataItr != mem_value.end(); dataItr++){
-                if(addr == dataItr->first){
-                  //cout << "addr:" << addr;
-                  //cout << "value: " << register_values.find(rtReg)->second;
-                  mem_value.at(addr) = stoi(register_values.find(rtReg)->second);
-                }
-              }
-            }
-          }
-          // LW Instruction
-          if(opcode == "0111"){
-
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                offset = offset + pow(2, it->second.length() - i - 1);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15-i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                base = base + pow(2, 10 - i);
-              }
-            }
-            // For the actual word to load, take the offset 340 to base R0 and every increment of 4 is the next data register.
-            instruction = "LW R" + to_string(rtReg) + ", " + to_string(offset) + "(R" + to_string(base) + ")";
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              int addr = (offset + stoi(register_values.find(base)->second));
-              int memoryval = mem_value.find(addr)->second;
-              //cout << "addr:" << addr << " |memval:" << memoryval;
-              register_values.erase(rtReg);
-              register_values.insert(pair<int,string>(rtReg, to_string(memoryval)));
-            }
-          }
-          // SLL Instruction  //31-26
-          if(opcode == "1000"){
-            for(int i = it->second.length() - 7; i >= 21; i--){
-              if(it->second.at(i) == '1')
-                sa = sa + pow(2, 25 - i);
-            }
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1')
-                rdReg = rdReg + pow(2, 20 - i);
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1')
-                rtReg = rtReg + pow(2, 15 - i);
-            }
-            // Keep the new value of rdReg in another variable
-            shftedRegAmt = stoi(register_values.find(rtReg)->second);
-            // For each shift amount, shift left bits 1.
-            for(int i = sa; i > 0; i--){
-              shftedRegAmt = shftedRegAmt << 1;
-            }
-            instruction = "SLL R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              // Remove current register value and replace with the new one
-              register_values.erase(rdReg);
-              register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
-              // cout << "rdreg:" << rdReg << "|amt: " << to_string(shftedRegAmt);
-            }
-          }
-          // SRL Instruction
-          if(opcode == "1001"){
-            for(int i = it->second.length() - 7; i >= 21; i--){
-              if(it->second.at(i) == '1')
-                sa = sa + pow(2, 25 - i);
-            }
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1')
-                rdReg = rdReg + pow(2, 20 - i);
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1')
-                rtReg = rtReg + pow(2, 15 - i);
-            }
-            // Keep the new value of rdReg in another variable
-            shftedRegAmt = stoi(register_values.find(rtReg)->second);
-            // For each shift amount, shift left bits 1.
-            for(int i = sa; i > 0; i--){
-              shftedRegAmt = shftedRegAmt >> 1;
-            }
-            instruction = "SRL R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              // Remove current register value and replace with the new one
-              register_values.erase(rdReg);
-              register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
-            }
-          }
-          // SRA Instruction
-          if(opcode == "1010"){
-
-            for(int i = it->second.length() - 7; i >= 21; i--){
-              if(it->second.at(i) == '1')
-                sa = sa + pow(2, 25 - i);
-            }
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1')
-                rdReg = rdReg + pow(2, 20 - i);
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1')
-                rtReg = rtReg + pow(2, 15 - i);
-            }
-            // Keep the new value of rdReg in another variable
-            shftedRegAmt = stoi(register_values.find(rtReg)->second);
-            // For each shift amount, shift left bits 1.
-            for(int i = sa; i > 0; i--){
-              shftedRegAmt = shftedRegAmt >> 1;
-            }
-            // turn shiftedregamt integer into 32 bit string and then manipulate
-            // currently working as SRL? (need to implement sign bit thing)?
-            // tested with negative numbers and positive and seem to work same??
-            //string signbit = "";
-            //string arithString = "";
-            instruction = "SRA R" + to_string(rdReg) + ", R" + to_string(rtReg) + ", #" + to_string(sa);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              // Remove current register value and replace with the new one
-              register_values.erase(rdReg);
-              register_values.insert(pair<int, string>(rdReg, to_string(shftedRegAmt)));
-            }
-           }
-          // NOP Instruction
-          if(opcode == "1011"){
-            instruction = "NOP";
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              // do nothing?
-              // cycle++;
-            }
-          }
-        }
-        else if(categorybits == "11"){
-          // Use struct and create function to reduce redundancy if there is extra time
-
-          // ADD Instruction
-          if(opcode == "0000"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-            instruction = "ADD R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
-                if(regItr->first == rdReg){
-                  x = stoi(register_values.at(rsReg));
-                  y = stoi(register_values.at(rtReg));
-                  // result of the two registers
-                  z = x + y;
-
-                  register_values.at(rdReg) = to_string(z);
-                }
-              }
-            }
-          }
-          // SUB Instruction
-          if(opcode == "0001"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            instruction = "SUB R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
-                if(regItr->first == rdReg){
-                  x = stoi(register_values.at(rsReg));
-                  y = stoi(register_values.at(rtReg));
-                  // result of the two registers
-                  z = x - y;
-
-                  register_values.at(rdReg) = to_string(z);
-                }
-              }
-            }
-          }
-          // MUL Instruction
-          if(opcode == "0010"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            instruction = "MUL R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              for(map<int,string>::iterator regItr = register_values.begin(); regItr != register_values.end(); regItr++){
-                if(regItr->first == rdReg){
-                  x = stoi(register_values.at(rsReg));
-                  y = stoi(register_values.at(rtReg));
-                  // cout << "x:" << x << "  | y:" << y;
-                  // result of the two registers
-                  z = x * y;
-
-                  register_values.at(rdReg) = to_string(z);
-                }
-              }
-            }
-          }
-          // AND Instruction
-          if(opcode == "0011"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            instruction = "AND R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              y = stoi(register_values.find(rtReg)->second);
-              xbits = createRegisterBitsString(x);
-              ybits = createRegisterBitsString(y);
-              zbits = and_function(xbits, ybits);
-              //print_bits(instruction, xbits, ybits, zbits);
-              z = int_ofbits(zbits);
-              //cout << "resultInt:" << z << "\n\n";
-              register_values.at(rdReg) = to_string(z);
-              //cout << z;
-              //cout << "x, xbits:" << x << "," << xbits << "|" << xbits.length();
-              //cout << "\ny, ybits:" << y << "," << ybits << "|" << ybits.length();
-              //cout << "\nzbits: " << zbits;
-            }
-          }
-          // OR Instruction
-          if(opcode == "0100"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            instruction = "OR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              y = stoi(register_values.find(rtReg)->second);
-              xbits = createRegisterBitsString(x);
-              ybits = createRegisterBitsString(y);
-              zbits = or_function(xbits, ybits);
-              //print_bits(instruction, xbits, ybits, zbits);
-              z = int_ofbits(zbits);
-              register_values.at(rdReg) = to_string(z);
-            }
-          }
-          // XOR Instruction
-          if(opcode == "0101"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            instruction = "XOR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              y = stoi(register_values.find(rtReg)->second);
-              xbits = createRegisterBitsString(x);
-              ybits = createRegisterBitsString(y);
-              zbits = xor_function(xbits, ybits);
-              //print_bits(instruction, xbits, ybits, zbits);
-              z = int_ofbits(zbits);
-              register_values.at(rdReg) = to_string(z);
-            }
-          }
-          // NOR Instruction
-          if(opcode == "0110"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            instruction = "NOR R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              y = stoi(register_values.find(rtReg)->second);
-              xbits = createRegisterBitsString(x);
-              ybits = createRegisterBitsString(y);
-              zbits = nor_function(xbits, ybits);
-              //print_bits(instruction, xbits, ybits, zbits);
-              z = int_ofbits(zbits);
-              register_values.at(rdReg) = to_string(z);
-            }
-          }
-          // SLT Instruction
-          if(opcode == "0111"){
-            for(int i = 20; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                rdReg = rdReg + pow(2, 20 - i);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-
-            instruction = "SLT R" + to_string(rdReg) + ", R" + to_string(rsReg) + ", R" + to_string(rtReg);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              y = stoi(register_values.find(rtReg)->second);
-              // if rs < rt, set rd equal to 1. if not, set rd equal to 0
-              if(x < y)
-                z = 1;
-              else
-                z = 0;
-              register_values.at(rdReg) = to_string(z);
-            }
-          }
-          // ADDI Instruction
-          if(opcode == "1000"){
-            // Calculate the immediate value (16 bits)
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                immediate = immediate + pow(2, it->second.length() - i - 1);
-              }
-            }
-            // Calculate the rt register (5 bits)
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15 - i);
-              }
-            }
-
-            // Calculate the rs register (5 bits)
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-            string immediateString = createImmediateBitsString(immediate);
-            //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
-            immediate = int_ofbits(immediateString);
-            instruction = "ADDI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              // Remove current register value and replace with the new one
-              x = stoi(register_values.find(rsReg)->second);
-              z = x + immediate;
-              register_values.at(rtReg) = to_string(z);
-            }
-          }
-          // ANDI Instruction
-          if(opcode == "1001"){
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                immediate = immediate + pow(2, it->second.length() - i - 1);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15-i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-            string immediateString = createImmediateBitsString(immediate);
-            //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
-            immediate = int_ofbits(immediateString);
-            instruction = "ANDI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              xbits = createRegisterBitsString(x);
-              if(immediate >= 0 ){
-                immediateString = "0000000000000000" + immediateString;
-                ybits = immediateString;
-              }
-              else if(immediate < 0){
-                immediateString = "1111111111111111" + immediateString;
-                ybits = immediateString;
-              }
-              zbits = and_function(xbits, immediateString);
-              //print_bits(instruction, xbits, ybits, zbits);
-              z = int_ofbits(zbits);
-              //cout << "resultInt:" << z << "\n\n";
-              register_values.at(rtReg) = to_string(z);
-            }
-          }
-          // ORI Instruction
-          if(opcode == "1010"){
-
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                immediate = immediate + pow(2, it->second.length() - i - 1);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15-i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-            string immediateString = createImmediateBitsString(immediate);
-            //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
-            immediate = int_ofbits(immediateString);
-            instruction = "ORI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              xbits = createRegisterBitsString(x);
-              if(immediate >= 0 ){
-                immediateString = "0000000000000000" + immediateString;
-                ybits = immediateString;
-              }
-              else if(immediate < 0){
-                immediateString = "1111111111111111" + immediateString;
-                ybits = immediateString;
-              }
-              zbits = or_function(xbits, immediateString);
-              //print_bits(instruction, xbits, ybits, zbits);
-              z = int_ofbits(zbits);
-              //cout << "resultInt:" << z << "\n\n";
-              register_values.at(rtReg) = to_string(z);
-            }
-          }
-          // XORI Instruction
-          if(opcode == "1011"){
-            for(int i = it->second.length() - 1; i >= 16; i--){
-              if(it->second.at(i) == '1'){
-                immediate = immediate + pow(2, it->second.length() - i - 1);
-              }
-            }
-            for(int i = 15; i >= 11; i--){
-              if(it->second.at(i) == '1'){
-                rtReg = rtReg + pow(2, 15-i);
-              }
-            }
-            for(int i = 10; i >= 6; i--){
-              if(it->second.at(i) == '1'){
-                rsReg = rsReg + pow(2, 10 - i);
-              }
-            }
-            string immediateString = createImmediateBitsString(immediate);
-            //cout << "immediatestring:" << immediateString << "  | " << immediateString.length();
-            immediate = int_ofbits(immediateString);
-            instruction = "XORI R" + to_string(rtReg) + ", R" + to_string(rsReg) + ", #" + to_string(immediate);
-            if(iteration == 1){
-              addto_instruction_disassembly(instruction_disassembly, it, instruction);
-              instructions_list[instructionsCount] = instruction;
-              instructionsCount++;
-            }
-            else if(iteration == 2){
-              x = stoi(register_values.find(rsReg)->second);
-              xbits = createRegisterBitsString(x);
-              if(immediate >= 0 ){
-                immediateString = "0000000000000000" + immediateString;
-                ybits = immediateString;
-              }
-              else if(immediate < 0){
-                immediateString = "1111111111111111" + immediateString;
-                ybits = immediateString;
-              }
-              zbits = xor_function(xbits, immediateString);
-              //print_bits(instruction, xbits, ybits, zbits);
-              z = int_ofbits(zbits);
-              //cout << "resultInt:" << z << "\n\n";
-              register_values.at(rtReg) = to_string(z);
-            }
-          }
-        }
-
-        write_back_tokened.erase(0);
-      }while(wbs_queued.size() > 0);
+      }
         // Start of the actual simulation. if(iteration ==1) is only for disassembly purposes.
       if(iteration == 2){
         // If it's a jump, I have to increase the cycle number so that it'll print out its jump state before changing the iterator to the one right before current iterator??
