@@ -705,6 +705,7 @@ void print_pipelinedebugging_states(map<int, vector<string>> registers_waited_on
      }
      cout << "  |||  ";
    }
+
    cout << "\n\n\n";
 }
 
@@ -1098,16 +1099,15 @@ int main(int args, char **argv){
                       IFunit_instructions_tokened[0].push_back(temp_str);
                       for(map<int, vector<string>>::iterator dItr = destination_registers_inpipeline.begin(); dItr != destination_registers_inpipeline.end(); dItr++){
                         if(dItr-> first < cycle){
-                          for(int k = 1; k < dItr->second.size(); k++){
+                          for(int k = 0; k < dItr->second.size(); k++){
                             if(temp_str == dItr->second.at(k)){
-                              cout << "SAMEEEEEE: \n";
-                              cout << "TEMP_STR: " << temp_str;
+                              cout << "temp_str:: " << temp_str;
+                              registers_waited_on.insert(pair<int, vector<string>>(0, vector<string>()));
+                              registers_waited_on[0].push_back(temp_str);
                             }
                           }
                         }
                       }
-
-                      registers_waited_on[0].push_back(temp_str);
                     }
                     else if(ready == true){
                       IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1138,10 +1138,10 @@ int main(int args, char **argv){
               if(branchInstruction == true){
                 instruction2 = "";
                 ifNum = ifNum - 1;
-                if(ready == false){
-                  // Take out the offset of the list of registers being waited on
-                  registers_waited_on[0].pop_back();
-                }
+                // if(ready == false){
+                //   // Take out the offset of the list of registers being waited on
+                //   registers_waited_on[0].pop_back();
+                // }
               }
 
               temp_str = "";
@@ -1275,7 +1275,16 @@ int main(int args, char **argv){
                     else if(branchInstruction == true){
                       if(ready == false){
                         IFunit_instructions_tokened[0].push_back(temp_str);
-                        registers_waited_on[0].push_back(temp_str);
+                        for(map<int, vector<string>>::iterator dItr = destination_registers_inpipeline.begin(); dItr != destination_registers_inpipeline.end(); dItr++){
+                          if(dItr-> first < cycle){
+                            for(int k = 0; k < dItr->second.size(); k++){
+                              if(temp_str == dItr->second.at(k)){
+                                registers_waited_on.insert(pair<int, vector<string>>(0, vector<string>()));
+                                registers_waited_on[0].push_back(temp_str);
+                              }
+                            }
+                          }
+                        }
                       }
                       else if(ready == true){
                         IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1418,7 +1427,16 @@ int main(int args, char **argv){
                   else if(branchInstruction == true){
                     if(ready == false){
                       IFunit_instructions_tokened[0].push_back(temp_str);
-                      registers_waited_on[0].push_back(temp_str);
+                      for(map<int, vector<string>>::iterator dItr = destination_registers_inpipeline.begin(); dItr != destination_registers_inpipeline.end(); dItr++){
+                        if(dItr-> first < cycle){
+                          for(int k = 0; k < dItr->second.size(); k++){
+                            if(temp_str == dItr->second.at(k)){
+                              registers_waited_on.insert(pair<int, vector<string>>(0, vector<string>()));
+                              registers_waited_on[0].push_back(temp_str);
+                            }
+                          }
+                        }
+                      }
                     }
                     else if(ready == true){
                       IFunit_instructions_tokened[1].push_back(temp_str);
@@ -2102,6 +2120,7 @@ int main(int args, char **argv){
       }
       cout << "wbts: " << write_back_tokened.size();
       if(branch_stalled == true && write_back_tokened.size() == 0){
+        cout << "IM IN HAREEEEEE:\n";
         for(map<int, vector<string>>::iterator dItr = destination_registers_inpipeline.begin(); dItr != destination_registers_inpipeline.end(); dItr++){
           for(int k = 1; k < dItr->second.size(); k++){
             if(dItr->second.at(k) == registers_waited_on[0].at(0) || dItr->second.at(k) == registers_waited_on[0].at(1)){
@@ -2115,22 +2134,21 @@ int main(int args, char **argv){
       // If the pipeline is stalled waiting bc of branch or something, after an instruction reaches
       // the writeback stage, if it's destination register is in the sources for the branch instr, unstall it and move the instruction to the execute.
       else if(branch_stalled == true && write_back_tokened.size() > 0){
-        cout << "looky im here";
         for(int i = 0; i < registers_waited_on[0].size(); i++){
-          cout << "cuntz";
-          // If in the registers being waited on list, the write back destination matches, remove it from the waiting list
-          if(registers_waited_on[0].at(i) == write_back_tokened[0].at(2)){
-            // If the size is greater than 1, swap the that element with the last element and then pop it off.
-            if(registers_waited_on[0].size() > 1){
-              string temp = "";
-              temp = registers_waited_on[0].at(i);
-              registers_waited_on[0].at(i) = registers_waited_on[0].at(registers_waited_on[0].size() - 1);
-              registers_waited_on[0].at(registers_waited_on[0].size() - 1) = temp;
-              registers_waited_on[0].pop_back();
-            }
-            // If the size of registers being waited on is 1, just pop it off.
-            else if(registers_waited_on[0].size() == 1){
-              registers_waited_on[0].pop_back();
+          for(map<int, vector<string>>::iterator wbItr = write_back_tokened.begin(); wbItr != write_back_tokened.end(); wbItr++){
+            if(registers_waited_on[0].at(i) == wbItr->second.at(2)){
+              // If the size is greater than 1, swap the that element with the last element and then pop it off.
+              if(registers_waited_on[0].size() > 1){
+                string temp = "";
+                temp = registers_waited_on[0].at(i);
+                registers_waited_on[0].at(i) = registers_waited_on[0].at(registers_waited_on[0].size() - 1);
+                registers_waited_on[0].at(registers_waited_on[0].size() - 1) = temp;
+                registers_waited_on[0].pop_back();
+              }
+              // If the size of registers being waited on is 1, just pop it off.
+              else if(registers_waited_on[0].size() == 1){
+                registers_waited_on[0].pop_back();
+              }
             }
           }
         }
@@ -2147,6 +2165,7 @@ int main(int args, char **argv){
           branchInstruction = false;
         }
       }
+
 
       // Flushing pipeline errors so they can be re-checked after write-back finish.
       if(branchInstruction == false){
