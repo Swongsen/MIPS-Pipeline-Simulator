@@ -588,9 +588,9 @@ void print_pipelinedebugging_states(map<int, vector<string>> registers_waited_on
                                     map<int, vector<string>> write_back_tokened,
                                     int cycle, int preissueSize){
    cout << "\nRegisters being waited on to branch... ";
-   for(map<int, vector<string>>::iterator rItr = registers_waited_on.begin(); rItr != registers_waited_on.end(); rItr++){
-     for(int k = 1; k < rItr->second.size(); k++){
-       cout << rItr->second.at(k) << " ";
+   for(int i = 0; i < registers_waited_on.size(); i++){
+     for(int j = 0; j < registers_waited_on[i].size(); j++){
+       cout << registers_waited_on[i].at(j) << " ";
      }
      cout << "\n";
    }
@@ -749,8 +749,7 @@ void store_branch_registerwait(map<int, vector<string>> &registers_waited_on, bo
   }
   if(alreadyExists == true){
     cout << "Branch destination register needed to wait on: " << temp_str;
-    registers_waited_on.insert(pair<int, vector<string>>(cycle, vector<string>()));
-    registers_waited_on[cycle].push_back(temp_str);
+    registers_waited_on[0].push_back(temp_str);
   }
 }
 
@@ -915,6 +914,7 @@ int main(int args, char **argv){
           noHazards = true;
           notSWinstruction = true;
           notLWinstruction = true;
+          no_registers_towaiton = true;
           cout << "--------------------------------------\n";
           cout << "Beginning of Cycle:" << cycle << "\n";
           cout << "Instructions: " << instructionsAmt << "\n";
@@ -1096,7 +1096,18 @@ int main(int args, char **argv){
                   else if(branchInstruction == true){
                     if(ready == false){
                       IFunit_instructions_tokened[0].push_back(temp_str);
-                      store_branch_registerwait(registers_waited_on, alreadyExists, cycle, temp_str, destination_registers_inpipeline);
+                      for(map<int, vector<string>>::iterator dItr = destination_registers_inpipeline.begin(); dItr != destination_registers_inpipeline.end(); dItr++){
+                        if(dItr-> first < cycle){
+                          for(int k = 1; k < dItr->second.size(); k++){
+                            if(temp_str == dItr->second.at(k)){
+                              cout << "SAMEEEEEE: \n";
+                              cout << "TEMP_STR: " << temp_str;
+                            }
+                          }
+                        }
+                      }
+
+                      registers_waited_on[0].push_back(temp_str);
                     }
                     else if(ready == true){
                       IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1127,10 +1138,10 @@ int main(int args, char **argv){
               if(branchInstruction == true){
                 instruction2 = "";
                 ifNum = ifNum - 1;
-                // if(ready == false){
-                //   // Take out the offset of the list of registers being waited on
-                //   registers_waited_on[cycle].pop_back();
-                // }
+                if(ready == false){
+                  // Take out the offset of the list of registers being waited on
+                  registers_waited_on[0].pop_back();
+                }
               }
 
               temp_str = "";
@@ -1264,7 +1275,7 @@ int main(int args, char **argv){
                     else if(branchInstruction == true){
                       if(ready == false){
                         IFunit_instructions_tokened[0].push_back(temp_str);
-                        store_branch_registerwait(registers_waited_on, alreadyExists, cycle, temp_str, destination_registers_inpipeline);
+                        registers_waited_on[0].push_back(temp_str);
                       }
                       else if(ready == true){
                         IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1407,7 +1418,7 @@ int main(int args, char **argv){
                   else if(branchInstruction == true){
                     if(ready == false){
                       IFunit_instructions_tokened[0].push_back(temp_str);
-                      store_branch_registerwait(registers_waited_on, alreadyExists, cycle, temp_str, destination_registers_inpipeline);
+                      registers_waited_on[0].push_back(temp_str);
                     }
                     else if(ready == true){
                       IFunit_instructions_tokened[1].push_back(temp_str);
@@ -1883,7 +1894,6 @@ int main(int args, char **argv){
                           cout << "3\n";
                           source_registers_inpipeline[deleter->first].pop_back();
                         }
-
                       }
                     }
                   }
@@ -2090,14 +2100,21 @@ int main(int args, char **argv){
       else if(branch_stalled == false){
         cout << "falseee\n";
       }
-      if(branch_stalled == true){
-        for(map<int, vector<string>>::iterator destItr = destination_registers_inpipeline.begin(); destItr != destination_registers_inpipeline.end(); destItr++){
-
+      cout << "wbts: " << write_back_tokened.size();
+      if(branch_stalled == true && write_back_tokened.size() == 0){
+        for(map<int, vector<string>>::iterator dItr = destination_registers_inpipeline.begin(); dItr != destination_registers_inpipeline.end(); dItr++){
+          for(int k = 1; k < dItr->second.size(); k++){
+            if(dItr->second.at(k) == registers_waited_on[0].at(0) || dItr->second.at(k) == registers_waited_on[0].at(1)){
+              branch_stalled = false;
+              movetoExecute = true;
+              branchInstruction = false;
+            }
+          }
         }
       }
       // If the pipeline is stalled waiting bc of branch or something, after an instruction reaches
       // the writeback stage, if it's destination register is in the sources for the branch instr, unstall it and move the instruction to the execute.
-      if(branch_stalled == true && no_registers_towaiton == true){
+      else if(branch_stalled == true && write_back_tokened.size() > 0){
         cout << "looky im here";
         for(int i = 0; i < registers_waited_on[0].size(); i++){
           cout << "cuntz";
